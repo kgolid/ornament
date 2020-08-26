@@ -1,4 +1,9 @@
-export function create_explorer(w, h, init_x, init_y) {
+export function create_explorer(
+  w,
+  h,
+  number_of_cols,
+  { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [] } = {}
+) {
   const grid = [...Array(h)].map((_, y) => [...Array(w)].map((_, x) => ({ x, y, explored: false })));
   const explored = [];
   let neighbors = [];
@@ -6,59 +11,37 @@ export function create_explorer(w, h, init_x, init_y) {
   let init_cell = grid[init_y][init_x];
   init_cell.parent = init_cell;
   init_cell.generation = 0;
-  init_cell.color = 0;
+  init_cell.color = Math.floor(Math.random() * number_of_cols);
   neighbors.push(init_cell);
 
-  /*
-  init_cell.explored = true;
-  explored.push(init_cell);
-
-  
-  let refl_cell = reflected(init_x, init_y, grid, true, false);
-  refl_cell.explored = true;
-
-
-  rotated(init_x, init_y, grid, 1).explored = true;
-  rotated(init_x, init_y, grid, 2).explored = true;
-  rotated(init_x, init_y, grid, 3).explored = true;
-  */
-
   return () => {
-    //const pick = neighbors[Math.floor(Math.random() * neighbors.length)];
-    const pick = shuffle(neighbors).sort((a, b) => b.generation - a.generation)[0];
+    const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)));
+    const pick = candidates.sort((a, b) => b.generation - a.generation)[0];
+
     if (pick === undefined) return null;
 
     pick.explored = true;
     explored.push(pick);
 
-    if (Math.random() < 0.1) {
+    if (Math.random() < split_chance) {
       pick.parent = pick;
-      //pick.generation = 0;
-      pick.color = Math.floor(Math.random() * 5);
+      pick.color = Math.random() < blank_chance ? -1 : Math.floor(Math.random() * number_of_cols);
     }
 
-    /*
-    let reflected_pick = reflected(pick.x, pick.y, grid, true, false);
-    reflected_pick.explored = true;
-    reflected_pick.parent = reflected(pick.parent.x, pick.parent.y, grid, true, false);
-*/
+    const picks = [pick];
+    for (let i = 0; i < symmetries.length; i++) {
+      const r = rotated(pick.x, pick.y, grid, symmetries[i]);
 
-    let r1 = rotated(pick.x, pick.y, grid, 1);
-    let r2 = rotated(pick.x, pick.y, grid, 2);
-    let r3 = rotated(pick.x, pick.y, grid, 3);
-    r1.explored = true;
-    r2.explored = true;
-    r3.explored = true;
-    r1.color = pick.color;
-    r2.color = pick.color;
-    r3.color = pick.color;
-    r1.parent = rotated(pick.parent.x, pick.parent.y, grid, 1);
-    r2.parent = rotated(pick.parent.x, pick.parent.y, grid, 2);
-    r3.parent = rotated(pick.parent.x, pick.parent.y, grid, 3);
+      r.explored = true;
+      r.color = pick.color;
+      r.parent = rotated(pick.parent.x, pick.parent.y, grid, symmetries[i]);
+
+      picks.push(r);
+    }
 
     neighbors = get_all_neighbors(explored, grid);
 
-    return [pick, r1, r2, r3];
+    return picks;
   };
 }
 
@@ -85,11 +68,8 @@ function get_neighbors_of_cell(cell, grid) {
 }
 
 function reflected(x, y, grid, horizontal, vertical) {
-  let h = grid.length;
-  let w = grid[0].length;
-
-  let nx = horizontal ? w - x - 1 : x;
-  let ny = vertical ? h - y - 1 : y;
+  let nx = horizontal ? grid[0].length - x - 1 : x;
+  let ny = vertical ? grid.length - y - 1 : y;
 
   return grid[ny][nx];
 }

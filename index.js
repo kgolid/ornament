@@ -10,29 +10,26 @@ let horizontal_lines;
 let vertical_lines;
 
 let PARAMS;
-let palette;
-
-let explore;
-let next;
-
-let ornament;
 
 let sketch = function (p) {
   p.setup = function () {
     p.createCanvas(canvas_width, canvas_height);
     p.noLoop();
-    p.background('#5ad');
-    //p.frameRate(2);
-    palette = tome.get('skyspider');
+    p.noStroke();
+    p.pixelDensity(2);
 
     PARAMS = {
-      grid_dim: { x: 16, y: 16 },
-      ornament_size: { x: 750, y: 750 },
+      grid_dim: { x: 12, y: 12 },
+      ornament_size: { x: 450, y: 450 },
       resolution: 5,
-      oscilation: 0.4,
+      oscilation: 0.6,
+      palette: 'revolucion',
+      split_chance: 0.1,
+      blank_chance: 0,
+      path_priority: 0.8,
+      symmetries: 'none',
     };
 
-    // Pass the object and its key to pane
     const pane = new Tweakpane();
     pane.addInput(PARAMS, 'grid_dim', {
       x: { min: 4, max: 40, step: 2 },
@@ -43,132 +40,94 @@ let sketch = function (p) {
       y: { min: 100, max: 1000, step: 50 },
     });
     pane.addInput(PARAMS, 'resolution', { min: 1, max: 10, step: 1 });
-    pane.addInput(PARAMS, 'oscilation', { min: 0.05, max: 1, step: 0.05 });
+    pane.addInput(PARAMS, 'oscilation', { min: 0.1, max: 2, step: 0.05 });
+    pane.addInput(PARAMS, 'palette', { options: Object.assign({}, ...tome.getNames().map((n) => ({ [n]: n }))) });
+    pane.addInput(PARAMS, 'split_chance', { min: 0, max: 0.5, step: 0.05 });
+    pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
+    pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
+    pane.addInput(PARAMS, 'symmetries', { options: { none: [], oneway: [2], twoway: [1, 2, 3, 4] } });
 
-    pane.on('change', (_) => {
-      reset(PARAMS);
-    });
+    const btn = pane.addButton({ title: 'Redraw' });
+    btn.on('click', () => reset(PARAMS));
+    pane.on('change', (_) => reset(PARAMS));
 
     reset(PARAMS);
   };
 
   function reset(params) {
+    const palette = tome.get(params.palette);
+
     const big_cell = params.resolution;
     const small_cell = Math.ceil(params.resolution * params.oscilation);
 
     const grid_w = params.grid_dim.x;
-    const grid_h = params.grid_dim.y;
+    const grid_h = params.grid_dim.x;
+    const ornament_w = params.ornament_size.x;
+    const ornament_h = params.ornament_size.y;
 
-    const init = [2, 6];
+    const explore_opts = {
+      init_x: Math.floor(Math.random() * grid_w),
+      init_y: Math.floor(Math.random() * grid_h),
+      split_chance: params.split_chance,
+      blank_chance: params.blank_chance,
+      cand_size: params.path_priority,
+      symmetries: params.symmetries,
+    };
 
-    next = [
-      { x: init[0], y: init[1] },
-      { x: grid_w - init[0] - 1, y: grid_h - init[1] - 1 },
-    ];
-    next[0].parent = next[0];
-    next[1].parent = next[1];
-    explore = create_explorer(grid_w, grid_h, next[0].x, next[0].y);
+    p.noiseSeed(Math.random() * 9999);
 
-    //create_ornament(params.grid_dim.x, params.grid_dim.y);
-    create_fuzzy_grid(grid_w, grid_h, big_cell, small_cell);
+    const explore_fn = create_explorer(grid_w, grid_h, palette.colors.length, explore_opts);
 
-    p.background(palette.background);
-    //draw_grid(params.ornament_size.x, params.ornament_size.y);
-    draw_ornament(params.ornament_size.x, params.ornament_size.y, big_cell, small_cell);
+    create_grid(grid_w, grid_h, big_cell, small_cell);
+    draw_ornament(explore_fn, ornament_w, ornament_h, big_cell, small_cell, palette);
   }
 
-  function draw_ornament(size_x, size_y, big_cell, small_cell) {
+  function draw_ornament(explore, size_x, size_y, big_cell, small_cell, palette) {
     const pad_x = (canvas_width - size_x) / 2;
     const pad_y = (canvas_height - size_y) / 2;
 
     p.push();
     p.translate(pad_x, pad_y);
+    p.background(palette.background);
 
-    let retries = 0;
-    next = explore();
-    while (next && retries < 100000) {
+    let next = explore();
+    while (next) {
       next.forEach((n) => {
-        var pnts = extract_square(n.x, n.y, big_cell, small_cell);
-        draw_poly(pnts, size_x, size_y, palette.colors[n.color]);
+        var block_x = Math.min(n.x, n.parent.x);
+        var block_y = Math.min(n.y, n.parent.y);
+        var block_w = Math.abs(n.x - n.parent.x);
+        var block_h = Math.abs(n.y - n.parent.y);
 
-        var pnts = extract_square((n.x + n.parent.x) / 2, (n.y + n.parent.y) / 2, big_cell, small_cell);
-        draw_poly(pnts, size_x, size_y, palette.colors[n.color]);
+        var pnts = extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+        draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
       });
 
       next = explore();
-      retries++;
     }
     p.pop();
   }
 
-  function extract_square(x, y, size1, size2) {
-    var north = horizontal_lines[y * 2].slice(x * (size1 + size2), x * (size1 + size2) + size1 + 1);
-    var east = vertical_lines[x * 2 + 1].slice(y * (size1 + size2), y * (size1 + size2) + size1 + 1);
-    var south = horizontal_lines[y * 2 + 1].slice(x * (size1 + size2), x * (size1 + size2) + size1 + 1);
-    var west = vertical_lines[x * 2].slice(y * (size1 + size2), y * (size1 + size2) + size1 + 1);
+  function extract_square(x, y, w, h, size1, size2) {
+    var step_size = size1 + size2;
+
+    var north = horizontal_lines[y * 2].slice(x * step_size, (x + w) * step_size + size1 + 1);
+    var east = vertical_lines[(x + w) * 2 + 1].slice(y * step_size, (y + h) * step_size + size1 + 1);
+    var south = horizontal_lines[(y + h) * 2 + 1].slice(x * step_size, (x + w) * step_size + size1 + 1);
+    var west = vertical_lines[x * 2].slice(y * step_size, (y + h) * step_size + size1 + 1);
 
     return [...north, ...east, ...south.reverse(), ...west.reverse()];
   }
 
   function draw_poly(pnts, sizeX, sizeY, col) {
-    p.fill(col);
-    p.stroke(col);
-    p.strokeWeight(2);
+    if (col) p.fill(col);
+    else p.noFill();
 
     p.beginShape();
     pnts.forEach((pnt) => p.vertex(pnt[0] * sizeX, pnt[1] * sizeY));
     p.endShape(p.CLOSED);
   }
 
-  function draw_grid(size_x, size_y) {
-    const pad_x = (canvas_width - size_x) / 2;
-    const pad_y = (canvas_height - size_y) / 2;
-
-    p.stroke(0);
-    p.strokeWeight(3);
-    p.noFill();
-    p.background('#5ad');
-
-    horizontal_lines.forEach((pnts) => {
-      p.beginShape();
-      pnts.forEach((pnt) => p.vertex(pad_x + pnt[0] * size_x, pad_y + pnt[1] * size_y));
-      p.endShape();
-    });
-
-    vertical_lines.forEach((pnts) => {
-      p.beginShape();
-      pnts.forEach((pnt) => p.vertex(pad_x + pnt[0] * size_x, pad_y + pnt[1] * size_y));
-      p.endShape();
-    });
-    p.stroke(255, 0, 0);
-    p.strokeWeight(5);
-
-    horizontal_lines.forEach((pnts) => {
-      p.beginShape();
-      pnts.forEach((pnt) => p.point(pad_x + pnt[0] * size_x, pad_y + pnt[1] * size_y));
-      p.endShape();
-    });
-
-    vertical_lines.forEach((pnts) => {
-      p.beginShape();
-      pnts.forEach((pnt) => p.point(pad_x + pnt[0] * size_x, pad_y + pnt[1] * size_y));
-      p.endShape();
-    });
-
-    /*
-    p.stroke(255, 0, 0);
-    p.strokeWeight(5);
-    grid.forEach((pnts) => {
-      pnts.forEach((pnt) => p.point(pad_x + pnt[0] * size_x, pad_y + pnt[1] * size_y));
-    });
-    */
-  }
-
-  function create_ornament(w, h) {
-    ornament = [...Array(h)].map((_) => [...Array(w)].map((_) => Math.random() < 0.5));
-  }
-
-  function create_fuzzy_grid(w, h, big_cell, small_cell) {
+  function create_grid(w, h, big_cell, small_cell) {
     const cell_dim = big_cell + small_cell;
     const grid_height = h * cell_dim - small_cell + 1;
     const grid_width = w * cell_dim - small_cell + 1;
@@ -179,23 +138,6 @@ let sketch = function (p) {
 
     horizontal_lines = pnts.filter((_, i) => i % cell_dim === 0 || i % cell_dim === big_cell);
     vertical_lines = transpose(pnts).filter((_, i) => i % cell_dim === 0 || i % cell_dim === big_cell);
-
-    /*
-    horizontal_lines = [...Array(h)].map((_, y) =>
-      [...Array((w - 1) * res + 1)].map((_, x) =>
-        get_point(oscilate(x / res, 0.3), oscilate(y, 0.3), w, h)
-      )
-    );
-    vertical_lines = [...Array(w)].map((_, x) =>
-      [...Array((h - 1) * res + 1)].map((_, y) =>
-        get_point(oscilate(x, 0.3), oscilate(y / res, 0.3), w, h)
-      )
-    );
-
-    grid = [...Array(h)].map((_, y) =>
-      [...Array(w)].map((_, x) => [vertical_lines[x][y * res][0], horizontal_lines[y][x * res][1]])
-    );
-    */
   }
 
   function get_point(x, y, w, h) {
@@ -205,7 +147,7 @@ let sketch = function (p) {
     return [nx, ny];
   }
 
-  const transpose = (m) => m[0].map((x, i) => m.map((x) => x[i]));
+  const transpose = (m) => m[0].map((_, i) => m.map((x) => x[i]));
 
   p.keyPressed = function () {
     if (p.keyCode === 80) p.saveCanvas('ornament', 'jpeg');
