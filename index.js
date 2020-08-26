@@ -10,6 +10,7 @@ let horizontal_lines;
 let vertical_lines;
 
 let PARAMS;
+let palette;
 
 let explore;
 let next;
@@ -22,6 +23,7 @@ let sketch = function (p) {
     p.noLoop();
     p.background('#5ad');
     //p.frameRate(2);
+    palette = tome.get('skyspider');
 
     PARAMS = {
       grid_dim: { x: 16, y: 16 },
@@ -54,14 +56,23 @@ let sketch = function (p) {
     const big_cell = params.resolution;
     const small_cell = Math.ceil(params.resolution * params.oscilation);
 
-    next = { x: 3, y: 5 };
-    next.parent = next;
-    explore = create_explorer(params.grid_dim.x, params.grid_dim.y, next.x, next.y);
+    const grid_w = params.grid_dim.x;
+    const grid_h = params.grid_dim.y;
+
+    const init = [2, 6];
+
+    next = [
+      { x: init[0], y: init[1] },
+      { x: grid_w - init[0] - 1, y: grid_h - init[1] - 1 },
+    ];
+    next[0].parent = next[0];
+    next[1].parent = next[1];
+    explore = create_explorer(grid_w, grid_h, next[0].x, next[0].y);
 
     //create_ornament(params.grid_dim.x, params.grid_dim.y);
-    create_fuzzy_grid(params.grid_dim.x, params.grid_dim.y, big_cell, small_cell);
+    create_fuzzy_grid(grid_w, grid_h, big_cell, small_cell);
 
-    p.background('#5ad');
+    p.background(palette.background);
     //draw_grid(params.ornament_size.x, params.ornament_size.y);
     draw_ornament(params.ornament_size.x, params.ornament_size.y, big_cell, small_cell);
   }
@@ -72,13 +83,17 @@ let sketch = function (p) {
 
     p.push();
     p.translate(pad_x, pad_y);
-    let retries = 0;
-    while (next && retries < 100000) {
-      var pnts = extract_square(next.x, next.y, big_cell, small_cell);
-      draw_poly(pnts, size_x, size_y);
 
-      var pnts = extract_square((next.x + next.parent.x) / 2, (next.y + next.parent.y) / 2, big_cell, small_cell);
-      draw_poly(pnts, size_x, size_y);
+    let retries = 0;
+    next = explore();
+    while (next && retries < 100000) {
+      next.forEach((n) => {
+        var pnts = extract_square(n.x, n.y, big_cell, small_cell);
+        draw_poly(pnts, size_x, size_y, palette.colors[n.color]);
+
+        var pnts = extract_square((n.x + n.parent.x) / 2, (n.y + n.parent.y) / 2, big_cell, small_cell);
+        draw_poly(pnts, size_x, size_y, palette.colors[n.color]);
+      });
 
       next = explore();
       retries++;
@@ -95,9 +110,9 @@ let sketch = function (p) {
     return [...north, ...east, ...south.reverse(), ...west.reverse()];
   }
 
-  function draw_poly(pnts, sizeX, sizeY) {
-    p.fill('#ec5');
-    p.stroke('#ec5');
+  function draw_poly(pnts, sizeX, sizeY, col) {
+    p.fill(col);
+    p.stroke(col);
     p.strokeWeight(2);
 
     p.beginShape();
@@ -191,5 +206,9 @@ let sketch = function (p) {
   }
 
   const transpose = (m) => m[0].map((x, i) => m.map((x) => x[i]));
+
+  p.keyPressed = function () {
+    if (p.keyCode === 80) p.saveCanvas('ornament', 'jpeg');
+  };
 };
 new p5(sketch);
