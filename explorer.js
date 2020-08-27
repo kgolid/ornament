@@ -4,7 +4,7 @@ export function create_explorer(
   copies_x,
   copies_y,
   number_of_cols,
-  { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [] } = {}
+  { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [], rng } = {}
 ) {
   const w = local_w * copies_x;
   const h = local_h * copies_y;
@@ -15,11 +15,11 @@ export function create_explorer(
   let init_cell = grid[init_y][init_x];
   init_cell.parent = init_cell;
   init_cell.generation = 0;
-  init_cell.color = Math.floor(Math.random() * number_of_cols);
+  init_cell.color = Math.floor(rng() * number_of_cols);
   neighbors.push(init_cell);
 
   return () => {
-    const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)));
+    const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)), rng);
     const pick = candidates.sort((a, b) => b.generation - a.generation)[0];
 
     if (pick === undefined) return null;
@@ -27,9 +27,9 @@ export function create_explorer(
     pick.explored = true;
     explored.push(pick);
 
-    if (Math.random() < split_chance) {
+    if (rng() < split_chance) {
       pick.parent = pick;
-      pick.color = Math.random() < blank_chance ? -1 : Math.floor(Math.random() * number_of_cols);
+      pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
     }
 
     const picks = [pick];
@@ -108,9 +108,9 @@ function translated(x, y, dx, dy, grid) {
   return grid[ny][nx];
 }
 
-function shuffle(a) {
+function shuffle(a, rng) {
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;

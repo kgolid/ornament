@@ -14,6 +14,7 @@
   "browser": "dist/index.js",
   "dependencies": {
     "chromotome": "^1.17.6",
+    "seed-random": "^2.2.0",
     "tweakpane": "^1.5.3"
   },
   "devDependencies": {

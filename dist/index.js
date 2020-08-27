@@ -9394,13 +9394,189 @@
 
   var Tweakpane = unwrapExports(tweakpane);
 
+  var seedRandom = createCommonjsModule(function (module) {
+
+  var width = 256;// each RC4 output is 0 <= x < 256
+  var chunks = 6;// at least six RC4 outputs for each double
+  var digits = 52;// there are 52 significant digits in a double
+  var pool = [];// pool: entropy pool starts empty
+  var GLOBAL = typeof commonjsGlobal === 'undefined' ? window : commonjsGlobal;
+
+  //
+  // The following constants are related to IEEE 754 limits.
+  //
+  var startdenom = Math.pow(width, chunks),
+      significance = Math.pow(2, digits),
+      overflow = significance * 2,
+      mask = width - 1;
+
+
+  var oldRandom = Math.random;
+
+  //
+  // seedrandom()
+  // This is the seedrandom function described above.
+  //
+  module.exports = function(seed, options) {
+    if (options && options.global === true) {
+      options.global = false;
+      Math.random = module.exports(seed, options);
+      options.global = true;
+      return Math.random;
+    }
+    var use_entropy = (options && options.entropy) || false;
+    var key = [];
+
+    // Flatten the seed string or build one from local entropy if needed.
+    var shortseed = mixkey(flatten(
+      use_entropy ? [seed, tostring(pool)] :
+      0 in arguments ? seed : autoseed(), 3), key);
+
+    // Use the seed to initialize an ARC4 generator.
+    var arc4 = new ARC4(key);
+
+    // Mix the randomness into accumulated entropy.
+    mixkey(tostring(arc4.S), pool);
+
+    // Override Math.random
+
+    // This function returns a random double in [0, 1) that contains
+    // randomness in every bit of the mantissa of the IEEE 754 value.
+
+    return function() {         // Closure to return a random double:
+      var n = arc4.g(chunks),             // Start with a numerator n < 2 ^ 48
+          d = startdenom,                 //   and denominator d = 2 ^ 48.
+          x = 0;                          //   and no 'extra last byte'.
+      while (n < significance) {          // Fill up all significant digits by
+        n = (n + x) * width;              //   shifting numerator and
+        d *= width;                       //   denominator and generating a
+        x = arc4.g(1);                    //   new least-significant-byte.
+      }
+      while (n >= overflow) {             // To avoid rounding up, before adding
+        n /= 2;                           //   last byte, shift everything
+        d /= 2;                           //   right using integer Math until
+        x >>>= 1;                         //   we have exactly the desired bits.
+      }
+      return (n + x) / d;                 // Form the number within [0, 1).
+    };
+  };
+
+  module.exports.resetGlobal = function () {
+    Math.random = oldRandom;
+  };
+
+  //
+  // ARC4
+  //
+  // An ARC4 implementation.  The constructor takes a key in the form of
+  // an array of at most (width) integers that should be 0 <= x < (width).
+  //
+  // The g(count) method returns a pseudorandom integer that concatenates
+  // the next (count) outputs from ARC4.  Its return value is a number x
+  // that is in the range 0 <= x < (width ^ count).
+  //
+  /** @constructor */
+  function ARC4(key) {
+    var t, keylen = key.length,
+        me = this, i = 0, j = me.i = me.j = 0, s = me.S = [];
+
+    // The empty key [] is treated as [0].
+    if (!keylen) { key = [keylen++]; }
+
+    // Set up S using the standard key scheduling algorithm.
+    while (i < width) {
+      s[i] = i++;
+    }
+    for (i = 0; i < width; i++) {
+      s[i] = s[j = mask & (j + key[i % keylen] + (t = s[i]))];
+      s[j] = t;
+    }
+
+    // The "g" method returns the next (count) outputs as one number.
+    (me.g = function(count) {
+      // Using instance members instead of closure state nearly doubles speed.
+      var t, r = 0,
+          i = me.i, j = me.j, s = me.S;
+      while (count--) {
+        t = s[i = mask & (i + 1)];
+        r = r * width + s[mask & ((s[i] = s[j = mask & (j + t)]) + (s[j] = t))];
+      }
+      me.i = i; me.j = j;
+      return r;
+      // For robust unpredictability discard an initial batch of values.
+      // See http://www.rsa.com/rsalabs/node.asp?id=2009
+    })(width);
+  }
+
+  //
+  // flatten()
+  // Converts an object tree to nested arrays of strings.
+  //
+  function flatten(obj, depth) {
+    var result = [], typ = (typeof obj)[0], prop;
+    if (depth && typ == 'o') {
+      for (prop in obj) {
+        try { result.push(flatten(obj[prop], depth - 1)); } catch (e) {}
+      }
+    }
+    return (result.length ? result : typ == 's' ? obj : obj + '\0');
+  }
+
+  //
+  // mixkey()
+  // Mixes a string seed into a key that is an array of integers, and
+  // returns a shortened string seed that is equivalent to the result key.
+  //
+  function mixkey(seed, key) {
+    var stringseed = seed + '', smear, j = 0;
+    while (j < stringseed.length) {
+      key[mask & j] =
+        mask & ((smear ^= key[mask & j] * 19) + stringseed.charCodeAt(j++));
+    }
+    return tostring(key);
+  }
+
+  //
+  // autoseed()
+  // Returns an object for autoseeding, using window.crypto if available.
+  //
+  /** @param {Uint8Array=} seed */
+  function autoseed(seed) {
+    try {
+      GLOBAL.crypto.getRandomValues(seed = new Uint8Array(width));
+      return tostring(seed);
+    } catch (e) {
+      return [+new Date, GLOBAL, GLOBAL.navigator && GLOBAL.navigator.plugins,
+              GLOBAL.screen, tostring(pool)];
+    }
+  }
+
+  //
+  // tostring()
+  // Converts an array of charcodes to a string
+  //
+  function tostring(a) {
+    return String.fromCharCode.apply(0, a);
+  }
+
+  //
+  // When seedrandom.js is loaded, we immediately mix a few bits
+  // from the built-in RNG into the entropy pool.  Because we do
+  // not want to intefere with determinstic PRNG state later,
+  // seedrandom will not call Math.random on its own again after
+  // initialization.
+  //
+  mixkey(Math.random(), pool);
+  });
+  var seedRandom_1 = seedRandom.resetGlobal;
+
   function create_explorer(
     local_w,
     local_h,
     copies_x,
     copies_y,
     number_of_cols,
-    { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [] } = {}
+    { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [], rng } = {}
   ) {
     const w = local_w * copies_x;
     const h = local_h * copies_y;
@@ -9411,11 +9587,11 @@
     let init_cell = grid[init_y][init_x];
     init_cell.parent = init_cell;
     init_cell.generation = 0;
-    init_cell.color = Math.floor(Math.random() * number_of_cols);
+    init_cell.color = Math.floor(rng() * number_of_cols);
     neighbors.push(init_cell);
 
     return () => {
-      const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)));
+      const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)), rng);
       const pick = candidates.sort((a, b) => b.generation - a.generation)[0];
 
       if (pick === undefined) return null;
@@ -9423,9 +9599,9 @@
       pick.explored = true;
       explored.push(pick);
 
-      if (Math.random() < split_chance) {
+      if (rng() < split_chance) {
         pick.parent = pick;
-        pick.color = Math.random() < blank_chance ? -1 : Math.floor(Math.random() * number_of_cols);
+        pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
       }
 
       const picks = [pick];
@@ -9504,9 +9680,9 @@
     return grid[ny][nx];
   }
 
-  function shuffle(a) {
+  function shuffle(a, rng) {
     for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
@@ -9518,6 +9694,9 @@
   let horizontal_lines;
   let vertical_lines;
 
+  let seed;
+  let rng;
+
   let PARAMS;
 
   let sketch = function (p) {
@@ -9527,34 +9706,34 @@
       p.noStroke();
       p.pixelDensity(2);
 
+      seed = Math.random();
       PARAMS = {
         grid_dim: { x: 12, y: 12 },
         grid_copies: { x: 2, y: 2 },
-        ornament_size: { x: 450, y: 450 },
-        resolution: 5,
-        oscilation: 0.6,
+        ornament_scale: 24,
+        resolution: 6,
+        spacing: 0.7,
+        noise_intensity: 1,
         palette: 'revolucion',
         split_chance: 0.1,
         blank_chance: 0,
-        path_priority: 0.8,
-        symmetries: 'none',
+        path_priority: 0.85,
+        symmetries: 'twoway',
       };
 
       const pane = new Tweakpane();
       pane.addInput(PARAMS, 'grid_dim', {
-        x: { min: 4, max: 40, step: 2 },
-        y: { min: 4, max: 40, step: 2 },
+        x: { min: 2, max: 30, step: 2 },
+        y: { min: 2, max: 30, step: 2 },
       });
       pane.addInput(PARAMS, 'grid_copies', {
-        x: { min: 1, max: 4, step: 1 },
-        y: { min: 1, max: 4, step: 1 },
+        x: { min: 1, max: 5, step: 1 },
+        y: { min: 1, max: 5, step: 1 },
       });
-      pane.addInput(PARAMS, 'ornament_size', {
-        x: { min: 100, max: 1000, step: 50 },
-        y: { min: 100, max: 1000, step: 50 },
-      });
+      pane.addInput(PARAMS, 'ornament_scale', { min: 2, max: 50, step: 2 });
       pane.addInput(PARAMS, 'resolution', { min: 1, max: 10, step: 1 });
-      pane.addInput(PARAMS, 'oscilation', { min: 0.1, max: 2, step: 0.05 });
+      pane.addInput(PARAMS, 'spacing', { min: 0.1, max: 2, step: 0.05 });
+      pane.addInput(PARAMS, 'noise_intensity', { min: 0, max: 2, step: 0.1 });
       pane.addInput(PARAMS, 'palette', { options: Object.assign({}, ...getNames().map((n) => ({ [n]: n }))) });
       pane.addInput(PARAMS, 'split_chance', { min: 0, max: 0.5, step: 0.05 });
       pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
@@ -9562,35 +9741,42 @@
       pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
 
       const btn = pane.addButton({ title: 'Redraw' });
-      btn.on('click', () => reset(PARAMS));
+      btn.on('click', () => reset_with_new_seed(PARAMS));
       pane.on('change', (_) => reset(PARAMS));
 
-      reset(PARAMS);
+      reset_with_new_seed(PARAMS);
     };
 
+    function reset_with_new_seed(params) {
+      seed = Math.random();
+      reset(params);
+    }
+
     function reset(params) {
+      rng = seedRandom(seed);
       const palette = get(params.palette);
 
-      const big_cell = params.resolution;
-      const small_cell = Math.ceil(params.resolution * params.oscilation);
+      const cell_dim = params.resolution;
+      const spacing_dim = Math.ceil(params.resolution * params.spacing);
 
       const local_grid_w = params.grid_dim.x;
       const local_grid_h = params.grid_dim.y;
       const grid_w = local_grid_w * params.grid_copies.x;
       const grid_h = local_grid_h * params.grid_copies.y;
-      const ornament_w = params.ornament_size.x * params.grid_copies.x;
-      const ornament_h = params.ornament_size.y * params.grid_copies.y;
+      const ornament_w = params.ornament_scale * grid_w;
+      const ornament_h = params.ornament_scale * grid_h;
 
       const explore_opts = {
-        init_x: Math.floor(Math.random() * local_grid_w),
-        init_y: Math.floor(Math.random() * local_grid_h),
+        init_x: Math.floor(rng() * local_grid_w),
+        init_y: Math.floor(rng() * local_grid_h),
         split_chance: params.split_chance,
         blank_chance: params.blank_chance,
         cand_size: params.path_priority,
         symmetries: symmetry(params.symmetries),
+        rng: rng,
       };
 
-      p.noiseSeed(Math.random() * 9999);
+      p.noiseSeed(rng() * 9999);
 
       const explore_fn = create_explorer(
         local_grid_w,
@@ -9601,11 +9787,11 @@
         explore_opts
       );
 
-      create_grid(grid_w, grid_h, big_cell, small_cell);
-      draw_ornament(explore_fn, ornament_w, ornament_h, big_cell, small_cell, palette);
+      create_grid(grid_w, grid_h, cell_dim, spacing_dim, params.noise_intensity);
+      draw_ornament(explore_fn, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
     }
 
-    function draw_ornament(explore, size_x, size_y, big_cell, small_cell, palette) {
+    function draw_ornament(explore, size_x, size_y, cell_dim, spacing_dim, palette) {
       const pad_x = (canvas_width - size_x) / 2;
       const pad_y = (canvas_height - size_y) / 2;
 
@@ -9623,8 +9809,8 @@
 
           var long_dist = block_w + block_h > 1;
           var pnts = long_dist
-            ? extract_square(n.x, n.y, 0, 0, big_cell, small_cell)
-            : extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+            ? extract_square(n.x, n.y, 0, 0, cell_dim, spacing_dim)
+            : extract_square(block_x, block_y, block_w, block_h, cell_dim, spacing_dim);
 
           draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
         });
@@ -9654,22 +9840,22 @@
       p.endShape(p.CLOSED);
     }
 
-    function create_grid(w, h, big_cell, small_cell) {
+    function create_grid(w, h, big_cell, small_cell, noise_intensity) {
       const cell_dim = big_cell + small_cell;
       const grid_height = h * cell_dim - small_cell + 1;
       const grid_width = w * cell_dim - small_cell + 1;
 
       const pnts = [...Array(grid_height)].map((_, y) =>
-        [...Array(grid_width)].map((_, x) => get_point(x / cell_dim, y / cell_dim, w, h))
+        [...Array(grid_width)].map((_, x) => get_point(x / cell_dim, y / cell_dim, w, h, noise_intensity))
       );
 
       horizontal_lines = pnts.filter((_, i) => i % cell_dim === 0 || i % cell_dim === big_cell);
       vertical_lines = transpose(pnts).filter((_, i) => i % cell_dim === 0 || i % cell_dim === big_cell);
     }
 
-    function get_point(x, y, w, h) {
-      const nx = (x + (p.noise(x / 2, y / 8, 4.123) - 0.5) * 1.1) / w;
-      const ny = (y + (p.noise(x / 8, y / 2, 0.582) - 0.5) * 1.1) / h;
+    function get_point(x, y, w, h, intensity) {
+      const nx = (x + (p.noise(x / 2, y / 8, 4.123) - 0.5) * intensity) / w;
+      const ny = (y + (p.noise(x / 8, y / 2, 0.582) - 0.5) * intensity) / h;
 
       return [nx, ny];
     }
