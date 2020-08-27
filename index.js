@@ -20,6 +20,7 @@ let sketch = function (p) {
 
     PARAMS = {
       grid_dim: { x: 12, y: 12 },
+      grid_copies: { x: 2, y: 2 },
       ornament_size: { x: 450, y: 450 },
       resolution: 5,
       oscilation: 0.6,
@@ -35,6 +36,10 @@ let sketch = function (p) {
       x: { min: 4, max: 40, step: 2 },
       y: { min: 4, max: 40, step: 2 },
     });
+    pane.addInput(PARAMS, 'grid_copies', {
+      x: { min: 1, max: 4, step: 1 },
+      y: { min: 1, max: 4, step: 1 },
+    });
     pane.addInput(PARAMS, 'ornament_size', {
       x: { min: 100, max: 1000, step: 50 },
       y: { min: 100, max: 1000, step: 50 },
@@ -45,7 +50,7 @@ let sketch = function (p) {
     pane.addInput(PARAMS, 'split_chance', { min: 0, max: 0.5, step: 0.05 });
     pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
     pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
-    pane.addInput(PARAMS, 'symmetries', { options: { none: [], oneway: [2], twoway: [1, 2, 3, 4] } });
+    pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
 
     const btn = pane.addButton({ title: 'Redraw' });
     btn.on('click', () => reset(PARAMS));
@@ -60,23 +65,32 @@ let sketch = function (p) {
     const big_cell = params.resolution;
     const small_cell = Math.ceil(params.resolution * params.oscilation);
 
-    const grid_w = params.grid_dim.x;
-    const grid_h = params.grid_dim.x;
-    const ornament_w = params.ornament_size.x;
-    const ornament_h = params.ornament_size.y;
+    const local_grid_w = params.grid_dim.x;
+    const local_grid_h = params.grid_dim.y;
+    const grid_w = local_grid_w * params.grid_copies.x;
+    const grid_h = local_grid_h * params.grid_copies.y;
+    const ornament_w = params.ornament_size.x * params.grid_copies.x;
+    const ornament_h = params.ornament_size.y * params.grid_copies.y;
 
     const explore_opts = {
-      init_x: Math.floor(Math.random() * grid_w),
-      init_y: Math.floor(Math.random() * grid_h),
+      init_x: Math.floor(Math.random() * local_grid_w),
+      init_y: Math.floor(Math.random() * local_grid_h),
       split_chance: params.split_chance,
       blank_chance: params.blank_chance,
       cand_size: params.path_priority,
-      symmetries: params.symmetries,
+      symmetries: symmetry(params.symmetries),
     };
 
     p.noiseSeed(Math.random() * 9999);
 
-    const explore_fn = create_explorer(grid_w, grid_h, palette.colors.length, explore_opts);
+    const explore_fn = create_explorer(
+      local_grid_w,
+      local_grid_h,
+      params.grid_copies.x,
+      params.grid_copies.y,
+      palette.colors.length,
+      explore_opts
+    );
 
     create_grid(grid_w, grid_h, big_cell, small_cell);
     draw_ornament(explore_fn, ornament_w, ornament_h, big_cell, small_cell, palette);
@@ -93,12 +107,16 @@ let sketch = function (p) {
     let next = explore();
     while (next) {
       next.forEach((n) => {
-        var block_x = Math.min(n.x, n.parent.x);
-        var block_y = Math.min(n.y, n.parent.y);
         var block_w = Math.abs(n.x - n.parent.x);
         var block_h = Math.abs(n.y - n.parent.y);
+        var block_x = Math.min(n.x, n.parent.x);
+        var block_y = Math.min(n.y, n.parent.y);
 
-        var pnts = extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+        var long_dist = block_w + block_h > 1;
+        var pnts = long_dist
+          ? extract_square(n.x, n.y, 0, 0, big_cell, small_cell)
+          : extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+
         draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
       });
 
@@ -145,6 +163,12 @@ let sketch = function (p) {
     const ny = (y + (p.noise(x / 8, y / 2, 0.582) - 0.5) * 1.1) / h;
 
     return [nx, ny];
+  }
+
+  function symmetry(s) {
+    if (s === 'none') return [0];
+    if (s === 'oneway') return [0, 2];
+    if (s === 'twoway') return [0, 1, 2, 3];
   }
 
   const transpose = (m) => m[0].map((_, i) => m.map((x) => x[i]));

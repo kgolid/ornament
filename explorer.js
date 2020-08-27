@@ -1,9 +1,13 @@
 export function create_explorer(
-  w,
-  h,
+  local_w,
+  local_h,
+  copies_x,
+  copies_y,
   number_of_cols,
   { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [] } = {}
 ) {
+  const w = local_w * copies_x;
+  const h = local_h * copies_y;
   const grid = [...Array(h)].map((_, y) => [...Array(w)].map((_, x) => ({ x, y, explored: false })));
   const explored = [];
   let neighbors = [];
@@ -29,14 +33,25 @@ export function create_explorer(
     }
 
     const picks = [pick];
-    for (let i = 0; i < symmetries.length; i++) {
-      const r = rotated(pick.x, pick.y, grid, symmetries[i]);
 
-      r.explored = true;
-      r.color = pick.color;
-      r.parent = rotated(pick.parent.x, pick.parent.y, grid, symmetries[i]);
+    for (let i = 0; i < copies_y; i++) {
+      for (let j = 0; j < copies_x; j++) {
+        symmetries.forEach((s) => {
+          if (i + j + s !== 0) {
+            const r = rotated(pick.x, pick.y, grid, s);
+            const tr = translated(r.x, r.y, j * local_w, i * local_h, grid);
 
-      picks.push(r);
+            const rp = rotated(pick.parent.x, pick.parent.y, grid, s);
+            const trp = translated(rp.x, rp.y, j * local_w, i * local_h, grid);
+
+            tr.explored = true;
+            tr.color = pick.color;
+            tr.parent = trp;
+
+            picks.push(tr);
+          }
+        });
+      }
     }
 
     neighbors = get_all_neighbors(explored, grid);
@@ -53,9 +68,13 @@ function get_neighbors_of_cell(cell, grid) {
   let neighbors = [];
 
   if (cell.y > 0) neighbors.push(grid[cell.y - 1][cell.x]);
+  else neighbors.push(grid[grid.length - 1][cell.x]);
   if (cell.y < grid.length - 1) neighbors.push(grid[cell.y + 1][cell.x]);
+  else neighbors.push(grid[0][cell.x]);
   if (cell.x > 0) neighbors.push(grid[cell.y][cell.x - 1]);
+  else neighbors.push(grid[cell.y][grid[0].length - 1]);
   if (cell.x < grid[0].length - 1) neighbors.push(grid[cell.y][cell.x + 1]);
+  else neighbors.push(grid[cell.y][0]);
 
   neighbors = neighbors.filter((n) => !n.explored);
   neighbors.forEach((n) => {
@@ -75,10 +94,18 @@ function reflected(x, y, grid, horizontal, vertical) {
 }
 
 function rotated(x, y, grid, quartile) {
-  if (quartile == 1) return reflected(y, x, grid, true, false);
+  if (quartile == 1) return reflected(y % grid[0].length, x % grid.length, grid, true, false);
   if (quartile == 2) return reflected(x, y, grid, true, true);
-  if (quartile == 3) return reflected(y, x, grid, false, true);
+  if (quartile == 3) return reflected(y % grid[0].length, x % grid.length, grid, false, true);
+
   return grid[y][x];
+}
+
+function translated(x, y, dx, dy, grid) {
+  let nx = (x + dx) % grid[0].length;
+  let ny = (y + dy) % grid.length;
+
+  return grid[ny][nx];
 }
 
 function shuffle(a) {

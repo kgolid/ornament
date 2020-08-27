@@ -9395,11 +9395,15 @@
   var Tweakpane = unwrapExports(tweakpane);
 
   function create_explorer(
-    w,
-    h,
+    local_w,
+    local_h,
+    copies_x,
+    copies_y,
     number_of_cols,
     { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [] } = {}
   ) {
+    const w = local_w * copies_x;
+    const h = local_h * copies_y;
     const grid = [...Array(h)].map((_, y) => [...Array(w)].map((_, x) => ({ x, y, explored: false })));
     const explored = [];
     let neighbors = [];
@@ -9425,14 +9429,25 @@
       }
 
       const picks = [pick];
-      for (let i = 0; i < symmetries.length; i++) {
-        const r = rotated(pick.x, pick.y, grid, symmetries[i]);
 
-        r.explored = true;
-        r.color = pick.color;
-        r.parent = rotated(pick.parent.x, pick.parent.y, grid, symmetries[i]);
+      for (let i = 0; i < copies_y; i++) {
+        for (let j = 0; j < copies_x; j++) {
+          symmetries.forEach((s) => {
+            if (i + j + s !== 0) {
+              const r = rotated(pick.x, pick.y, grid, s);
+              const tr = translated(r.x, r.y, j * local_w, i * local_h, grid);
 
-        picks.push(r);
+              const rp = rotated(pick.parent.x, pick.parent.y, grid, s);
+              const trp = translated(rp.x, rp.y, j * local_w, i * local_h, grid);
+
+              tr.explored = true;
+              tr.color = pick.color;
+              tr.parent = trp;
+
+              picks.push(tr);
+            }
+          });
+        }
       }
 
       neighbors = get_all_neighbors(explored, grid);
@@ -9449,9 +9464,13 @@
     let neighbors = [];
 
     if (cell.y > 0) neighbors.push(grid[cell.y - 1][cell.x]);
+    else neighbors.push(grid[grid.length - 1][cell.x]);
     if (cell.y < grid.length - 1) neighbors.push(grid[cell.y + 1][cell.x]);
+    else neighbors.push(grid[0][cell.x]);
     if (cell.x > 0) neighbors.push(grid[cell.y][cell.x - 1]);
+    else neighbors.push(grid[cell.y][grid[0].length - 1]);
     if (cell.x < grid[0].length - 1) neighbors.push(grid[cell.y][cell.x + 1]);
+    else neighbors.push(grid[cell.y][0]);
 
     neighbors = neighbors.filter((n) => !n.explored);
     neighbors.forEach((n) => {
@@ -9471,10 +9490,18 @@
   }
 
   function rotated(x, y, grid, quartile) {
-    if (quartile == 1) return reflected(y, x, grid, true, false);
+    if (quartile == 1) return reflected(y % grid[0].length, x % grid.length, grid, true, false);
     if (quartile == 2) return reflected(x, y, grid, true, true);
-    if (quartile == 3) return reflected(y, x, grid, false, true);
+    if (quartile == 3) return reflected(y % grid[0].length, x % grid.length, grid, false, true);
+
     return grid[y][x];
+  }
+
+  function translated(x, y, dx, dy, grid) {
+    let nx = (x + dx) % grid[0].length;
+    let ny = (y + dy) % grid.length;
+
+    return grid[ny][nx];
   }
 
   function shuffle(a) {
@@ -9502,6 +9529,7 @@
 
       PARAMS = {
         grid_dim: { x: 12, y: 12 },
+        grid_copies: { x: 2, y: 2 },
         ornament_size: { x: 450, y: 450 },
         resolution: 5,
         oscilation: 0.6,
@@ -9517,6 +9545,10 @@
         x: { min: 4, max: 40, step: 2 },
         y: { min: 4, max: 40, step: 2 },
       });
+      pane.addInput(PARAMS, 'grid_copies', {
+        x: { min: 1, max: 4, step: 1 },
+        y: { min: 1, max: 4, step: 1 },
+      });
       pane.addInput(PARAMS, 'ornament_size', {
         x: { min: 100, max: 1000, step: 50 },
         y: { min: 100, max: 1000, step: 50 },
@@ -9527,7 +9559,7 @@
       pane.addInput(PARAMS, 'split_chance', { min: 0, max: 0.5, step: 0.05 });
       pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
       pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
-      pane.addInput(PARAMS, 'symmetries', { options: { none: [], oneway: [2], twoway: [1, 2, 3, 4] } });
+      pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
 
       const btn = pane.addButton({ title: 'Redraw' });
       btn.on('click', () => reset(PARAMS));
@@ -9542,23 +9574,32 @@
       const big_cell = params.resolution;
       const small_cell = Math.ceil(params.resolution * params.oscilation);
 
-      const grid_w = params.grid_dim.x;
-      const grid_h = params.grid_dim.x;
-      const ornament_w = params.ornament_size.x;
-      const ornament_h = params.ornament_size.y;
+      const local_grid_w = params.grid_dim.x;
+      const local_grid_h = params.grid_dim.y;
+      const grid_w = local_grid_w * params.grid_copies.x;
+      const grid_h = local_grid_h * params.grid_copies.y;
+      const ornament_w = params.ornament_size.x * params.grid_copies.x;
+      const ornament_h = params.ornament_size.y * params.grid_copies.y;
 
       const explore_opts = {
-        init_x: Math.floor(Math.random() * grid_w),
-        init_y: Math.floor(Math.random() * grid_h),
+        init_x: Math.floor(Math.random() * local_grid_w),
+        init_y: Math.floor(Math.random() * local_grid_h),
         split_chance: params.split_chance,
         blank_chance: params.blank_chance,
         cand_size: params.path_priority,
-        symmetries: params.symmetries,
+        symmetries: symmetry(params.symmetries),
       };
 
       p.noiseSeed(Math.random() * 9999);
 
-      const explore_fn = create_explorer(grid_w, grid_h, palette.colors.length, explore_opts);
+      const explore_fn = create_explorer(
+        local_grid_w,
+        local_grid_h,
+        params.grid_copies.x,
+        params.grid_copies.y,
+        palette.colors.length,
+        explore_opts
+      );
 
       create_grid(grid_w, grid_h, big_cell, small_cell);
       draw_ornament(explore_fn, ornament_w, ornament_h, big_cell, small_cell, palette);
@@ -9575,12 +9616,16 @@
       let next = explore();
       while (next) {
         next.forEach((n) => {
-          var block_x = Math.min(n.x, n.parent.x);
-          var block_y = Math.min(n.y, n.parent.y);
           var block_w = Math.abs(n.x - n.parent.x);
           var block_h = Math.abs(n.y - n.parent.y);
+          var block_x = Math.min(n.x, n.parent.x);
+          var block_y = Math.min(n.y, n.parent.y);
 
-          var pnts = extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+          var long_dist = block_w + block_h > 1;
+          var pnts = long_dist
+            ? extract_square(n.x, n.y, 0, 0, big_cell, small_cell)
+            : extract_square(block_x, block_y, block_w, block_h, big_cell, small_cell);
+
           draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
         });
 
@@ -9627,6 +9672,12 @@
       const ny = (y + (p.noise(x / 8, y / 2, 0.582) - 0.5) * 1.1) / h;
 
       return [nx, ny];
+    }
+
+    function symmetry(s) {
+      if (s === 'none') return [0];
+      if (s === 'oneway') return [0, 2];
+      if (s === 'twoway') return [0, 1, 2, 3];
     }
 
     const transpose = (m) => m[0].map((_, i) => m.map((x) => x[i]));
