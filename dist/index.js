@@ -9570,28 +9570,81 @@
   });
   var seedRandom_1 = seedRandom.resetGlobal;
 
+  function reflected({ x, y, parent_pos }, cell_w, cell_h, horizontal, vertical) {
+    let lx = cell_w * (Math.floor(x / cell_w) + 1) - (x % cell_w) - 1;
+    let ly = cell_h * (Math.floor(y / cell_h) + 1) - (y % cell_h) - 1;
+
+    let nx = horizontal ? lx : x;
+    let ny = vertical ? ly : y;
+
+    //console.log(x, y, nx, ny, grid);
+    return { x: nx, y: ny, parent_pos: parent_reflected(parent_pos, horizontal, vertical) };
+  }
+
+  function rotated({ x, y, parent_pos }, cell_w, cell_h, quartile) {
+    let x_init = cell_w * Math.floor(x / cell_w);
+    let y_init = cell_h * Math.floor(y / cell_h);
+
+    let x_cell = x % cell_w;
+    let y_cell = y % cell_h;
+
+    let parent = parent_rotated(parent_pos, quartile);
+
+    if (quartile == 1) return { x: x_init + (cell_h - y_cell - 1), y: y_init + x_cell, parent_pos: parent };
+    if (quartile == 2)
+      return { x: x_init + (cell_w - x_cell - 1), y: y_init + (cell_h - y_cell - 1), parent_pos: parent };
+    if (quartile == 3) return { x: x_init + y_cell, y: y_init + (cell_w - x_cell - 1), parent_pos: parent };
+
+    return { x, y, parent_pos: parent };
+  }
+
+  function translated({ x, y, parent_pos }, grid_w, grid_h, dx, dy) {
+    let nx = (x + dx) % grid_w;
+    let ny = (y + dy) % grid_h;
+
+    return { x: nx, y: ny, parent_pos: parent_pos };
+  }
+
+  function parent_reflected(pos, horizontal, vertical) {
+    if (pos === 'N') return vertical ? 'S' : 'N';
+    if (pos === 'S') return vertical ? 'N' : 'S';
+    if (pos === 'W') return horizontal ? 'E' : 'W';
+    if (pos === 'E') return horizontal ? 'W' : 'E';
+    return '';
+  }
+
+  function parent_rotated(pos, quartile) {
+    let positions = ['N', 'E', 'S', 'W'];
+    if (pos === 'N') return positions[quartile % 4];
+    if (pos === 'E') return positions[(1 + quartile) % 4];
+    if (pos === 'S') return positions[(2 + quartile) % 4];
+    if (pos === 'W') return positions[(3 + quartile) % 4];
+    return '';
+  }
+
   function create_explorer(
     local_w,
     local_h,
     copies_x,
     copies_y,
     number_of_cols,
-    { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [], rng } = {}
+    { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [], href, vref, rng } = {}
   ) {
-    const w = local_w * copies_x;
-    const h = local_h * copies_y;
-    const grid = [...Array(h)].map((_, y) => [...Array(w)].map((_, x) => ({ x, y, explored: false })));
+    const grid_w = local_w * copies_x;
+    const grid_h = local_h * copies_y;
+    const grid = [...Array(grid_h)].map((_, y) => [...Array(grid_w)].map((_, x) => ({ x, y, explored: false })));
     const explored = [];
     let neighbors = [];
 
     let init_cell = grid[init_y][init_x];
     init_cell.parent = init_cell;
+    init_cell.parent_pos = '';
     init_cell.generation = 0;
     init_cell.color = Math.floor(rng() * number_of_cols);
     neighbors.push(init_cell);
 
     return () => {
-      const candidates = shuffle(neighbors.slice(0, Math.ceil(cand_size * neighbors.length)), rng);
+      const candidates = shuffle(neighbors, rng).slice(0, Math.ceil(cand_size * neighbors.length));
       const pick = candidates.sort((a, b) => b.generation - a.generation)[0];
 
       if (pick === undefined) return null;
@@ -9601,6 +9654,7 @@
 
       if (rng() < split_chance) {
         pick.parent = pick;
+        pick.parent_pos = '';
         pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
       }
 
@@ -9610,17 +9664,19 @@
         for (let j = 0; j < copies_x; j++) {
           symmetries.forEach((s) => {
             if (i + j + s !== 0) {
-              const r = rotated(pick.x, pick.y, grid, s);
-              const tr = translated(r.x, r.y, j * local_w, i * local_h, grid);
+              const transform = get_transform(j, i, s, local_w, local_h, grid_w, grid_h, href, vref);
+              const tr = transform(pick);
+              //const trp = transform(pick.parent);
 
-              const rp = rotated(pick.parent.x, pick.parent.y, grid, s);
-              const trp = translated(rp.x, rp.y, j * local_w, i * local_h, grid);
+              const pick_clone = grid[tr.y][tr.x];
+              //const parent_clone = grid[trp.y][trp.x];
 
-              tr.explored = true;
-              tr.color = pick.color;
-              tr.parent = trp;
+              pick_clone.explored = true;
+              pick_clone.color = pick.color;
+              //pick_clone.parent = parent_clone;
+              pick_clone.parent_pos = tr.parent_pos;
 
-              picks.push(tr);
+              picks.push(pick_clone);
             }
           });
         }
@@ -9637,47 +9693,48 @@
   }
 
   function get_neighbors_of_cell(cell, grid) {
-    let neighbors = [];
+    const neighbors = [];
 
-    if (cell.y > 0) neighbors.push(grid[cell.y - 1][cell.x]);
-    else neighbors.push(grid[grid.length - 1][cell.x]);
-    if (cell.y < grid.length - 1) neighbors.push(grid[cell.y + 1][cell.x]);
-    else neighbors.push(grid[0][cell.x]);
-    if (cell.x > 0) neighbors.push(grid[cell.y][cell.x - 1]);
-    else neighbors.push(grid[cell.y][grid[0].length - 1]);
-    if (cell.x < grid[0].length - 1) neighbors.push(grid[cell.y][cell.x + 1]);
-    else neighbors.push(grid[cell.y][0]);
+    let north = grid[mod(cell.y - 1, grid.length)][cell.x];
+    if (!north.explored) {
+      north.parent_pos = 'S';
+      neighbors.push(north);
+    }
+    let south = grid[mod(cell.y + 1, grid.length)][cell.x];
+    if (!south.explored) {
+      south.parent_pos = 'N';
+      neighbors.push(south);
+    }
+    let west = grid[cell.y][mod(cell.x - 1, grid[0].length)];
+    if (!west.explored) {
+      west.parent_pos = 'E';
+      neighbors.push(west);
+    }
 
-    neighbors = neighbors.filter((n) => !n.explored);
+    let east = grid[cell.y][mod(cell.x + 1, grid[0].length)];
+    if (!east.explored) {
+      east.parent_pos = 'W';
+      neighbors.push(east);
+    }
+
     neighbors.forEach((n) => {
       n.parent = cell;
       n.generation = cell.generation + 1;
       n.color = cell.color;
     });
 
-    return neighbors.filter((n) => !n.explored);
+    return neighbors;
   }
 
-  function reflected(x, y, grid, horizontal, vertical) {
-    let nx = horizontal ? grid[0].length - x - 1 : x;
-    let ny = vertical ? grid.length - y - 1 : y;
-
-    return grid[ny][nx];
-  }
-
-  function rotated(x, y, grid, quartile) {
-    if (quartile == 1) return reflected(y % grid[0].length, x % grid.length, grid, true, false);
-    if (quartile == 2) return reflected(x, y, grid, true, true);
-    if (quartile == 3) return reflected(y % grid[0].length, x % grid.length, grid, false, true);
-
-    return grid[y][x];
-  }
-
-  function translated(x, y, dx, dy, grid) {
-    let nx = (x + dx) % grid[0].length;
-    let ny = (y + dy) % grid.length;
-
-    return grid[ny][nx];
+  function get_transform(global_x, global_y, symm, cell_w, cell_h, grid_w, grid_h, href, vref) {
+    return (pnt) => {
+      const p1 = rotated(pnt, cell_w, cell_h, symm);
+      const p2 = translated(p1, grid_w, grid_h, global_x * cell_w, global_y * cell_h);
+      const p3 = global_x % 2 === 0 || !href ? p2 : reflected(p2, cell_w, cell_h, true, false);
+      const p4 = global_y % 2 === 0 || !vref ? p3 : reflected(p3, cell_w, cell_h, false, true);
+      //console.log(pnt, p1, symm);
+      return p4;
+    };
   }
 
   function shuffle(a, rng) {
@@ -9686,6 +9743,10 @@
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  function mod(n, m) {
+    return ((n % m) + m) % m;
   }
 
   const canvas_width = 1000;
@@ -9719,6 +9780,8 @@
         blank_chance: 0,
         path_priority: 0.85,
         symmetries: 'twoway',
+        horizontal_reflection: true,
+        vertical_reflection: false,
       };
 
       const pane = new Tweakpane();
@@ -9727,8 +9790,8 @@
         y: { min: 2, max: 30, step: 2 },
       });
       pane.addInput(PARAMS, 'grid_copies', {
-        x: { min: 1, max: 5, step: 1 },
-        y: { min: 1, max: 5, step: 1 },
+        x: { min: 1, max: 8, step: 1 },
+        y: { min: 1, max: 8, step: 1 },
       });
       pane.addInput(PARAMS, 'ornament_scale', { min: 2, max: 50, step: 2 });
       pane.addInput(PARAMS, 'resolution', { min: 1, max: 10, step: 1 });
@@ -9739,6 +9802,8 @@
       pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
       pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
       pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
+      pane.addInput(PARAMS, 'horizontal_reflection');
+      pane.addInput(PARAMS, 'vertical_reflection');
 
       const btn = pane.addButton({ title: 'Redraw' });
       btn.on('click', () => reset_with_new_seed(PARAMS));
@@ -9773,6 +9838,8 @@
         blank_chance: params.blank_chance,
         cand_size: params.path_priority,
         symmetries: symmetry(params.symmetries),
+        href: params.horizontal_reflection,
+        vref: params.vertical_reflection,
         rng: rng,
       };
 
@@ -9788,10 +9855,10 @@
       );
 
       create_grid(grid_w, grid_h, cell_dim, spacing_dim, params.noise_intensity);
-      draw_ornament(explore_fn, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
+      draw_ornament(explore_fn, grid_w, grid_h, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
     }
 
-    function draw_ornament(explore, size_x, size_y, cell_dim, spacing_dim, palette) {
+    function draw_ornament(explore, grid_w, grid_h, size_x, size_y, cell_dim, spacing_dim, palette) {
       const pad_x = (canvas_width - size_x) / 2;
       const pad_y = (canvas_height - size_y) / 2;
 
@@ -9802,17 +9869,17 @@
       let next = explore();
       while (next) {
         next.forEach((n) => {
-          var block_w = Math.abs(n.x - n.parent.x);
-          var block_h = Math.abs(n.y - n.parent.y);
-          var block_x = Math.min(n.x, n.parent.x);
-          var block_y = Math.min(n.y, n.parent.y);
+          var block_w = n.parent_pos === 'W' || n.parent_pos === 'E' ? 1 : 0; //Math.abs(n.x - n.parent.x);
+          var block_h = n.parent_pos === 'N' || n.parent_pos === 'S' ? 1 : 0; //Math.abs(n.y - n.parent.y);
+          var block_x = n.parent_pos === 'W' ? n.x - 1 : n.x; //Math.min(n.x, n.parent.x);
+          var block_y = n.parent_pos === 'N' ? n.y - 1 : n.y; //Math.min(n.y, n.parent.y);
 
-          var long_dist = block_w + block_h > 1;
+          var long_dist = block_x + block_w > grid_w - 1 || block_y + block_h > grid_h - 1 || block_x < 0 || block_y < 0;
           var pnts = long_dist
             ? extract_square(n.x, n.y, 0, 0, cell_dim, spacing_dim)
             : extract_square(block_x, block_y, block_w, block_h, cell_dim, spacing_dim);
 
-          draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
+          draw_poly(pnts, size_x, size_y, n.color === -1 ? null : palette.colors[n.color]);
         });
 
         next = explore();

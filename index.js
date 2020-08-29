@@ -35,6 +35,8 @@ let sketch = function (p) {
       blank_chance: 0,
       path_priority: 0.85,
       symmetries: 'twoway',
+      horizontal_reflection: true,
+      vertical_reflection: false,
     };
 
     const pane = new Tweakpane();
@@ -43,8 +45,8 @@ let sketch = function (p) {
       y: { min: 2, max: 30, step: 2 },
     });
     pane.addInput(PARAMS, 'grid_copies', {
-      x: { min: 1, max: 5, step: 1 },
-      y: { min: 1, max: 5, step: 1 },
+      x: { min: 1, max: 8, step: 1 },
+      y: { min: 1, max: 8, step: 1 },
     });
     pane.addInput(PARAMS, 'ornament_scale', { min: 2, max: 50, step: 2 });
     pane.addInput(PARAMS, 'resolution', { min: 1, max: 10, step: 1 });
@@ -55,6 +57,8 @@ let sketch = function (p) {
     pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
     pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
     pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
+    pane.addInput(PARAMS, 'horizontal_reflection');
+    pane.addInput(PARAMS, 'vertical_reflection');
 
     const btn = pane.addButton({ title: 'Redraw' });
     btn.on('click', () => reset_with_new_seed(PARAMS));
@@ -89,6 +93,8 @@ let sketch = function (p) {
       blank_chance: params.blank_chance,
       cand_size: params.path_priority,
       symmetries: symmetry(params.symmetries),
+      href: params.horizontal_reflection,
+      vref: params.vertical_reflection,
       rng: rng,
     };
 
@@ -104,10 +110,10 @@ let sketch = function (p) {
     );
 
     create_grid(grid_w, grid_h, cell_dim, spacing_dim, params.noise_intensity);
-    draw_ornament(explore_fn, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
+    draw_ornament(explore_fn, grid_w, grid_h, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
   }
 
-  function draw_ornament(explore, size_x, size_y, cell_dim, spacing_dim, palette) {
+  function draw_ornament(explore, grid_w, grid_h, size_x, size_y, cell_dim, spacing_dim, palette) {
     const pad_x = (canvas_width - size_x) / 2;
     const pad_y = (canvas_height - size_y) / 2;
 
@@ -118,17 +124,17 @@ let sketch = function (p) {
     let next = explore();
     while (next) {
       next.forEach((n) => {
-        var block_w = Math.abs(n.x - n.parent.x);
-        var block_h = Math.abs(n.y - n.parent.y);
-        var block_x = Math.min(n.x, n.parent.x);
-        var block_y = Math.min(n.y, n.parent.y);
+        var block_w = n.parent_pos === 'W' || n.parent_pos === 'E' ? 1 : 0; //Math.abs(n.x - n.parent.x);
+        var block_h = n.parent_pos === 'N' || n.parent_pos === 'S' ? 1 : 0; //Math.abs(n.y - n.parent.y);
+        var block_x = n.parent_pos === 'W' ? n.x - 1 : n.x; //Math.min(n.x, n.parent.x);
+        var block_y = n.parent_pos === 'N' ? n.y - 1 : n.y; //Math.min(n.y, n.parent.y);
 
-        var long_dist = block_w + block_h > 1;
+        var long_dist = block_x + block_w > grid_w - 1 || block_y + block_h > grid_h - 1 || block_x < 0 || block_y < 0;
         var pnts = long_dist
           ? extract_square(n.x, n.y, 0, 0, cell_dim, spacing_dim)
           : extract_square(block_x, block_y, block_w, block_h, cell_dim, spacing_dim);
 
-        draw_poly(pnts, size_x, size_y, n.color == -1 ? null : palette.colors[n.color]);
+        draw_poly(pnts, size_x, size_y, n.color === -1 ? null : palette.colors[n.color]);
       });
 
       next = explore();
