@@ -15,10 +15,20 @@ let rng;
 
 let PARAMS;
 
+let ornament;
+
+let ornament_width;
+let ornament_height;
+
+let pad_x;
+let pad_y;
+
+let tick = 0;
+
 let sketch = function (p) {
   p.setup = function () {
     p.createCanvas(canvas_width, canvas_height);
-    p.noLoop();
+    //p.frameRate(4);
     p.noStroke();
     p.pixelDensity(2);
 
@@ -29,42 +39,90 @@ let sketch = function (p) {
       ornament_scale: 24,
       resolution: 6,
       spacing: 0.7,
-      noise_intensity: 1,
+      noise_intensity: 1.1,
       palette: 'revolucion',
+      stroke_weight: 0,
       split_chance: 0.1,
       blank_chance: 0,
       path_priority: 0.85,
       symmetries: 'twoway',
-      horizontal_reflection: true,
+      horizontal_reflection: false,
       vertical_reflection: false,
+      animate_drawing: false,
     };
 
-    const pane = new Tweakpane();
+    const pane = new Tweakpane({ title: 'Ornament options' });
     pane.addInput(PARAMS, 'grid_dim', {
+      label: 'Segment size',
       x: { min: 2, max: 30, step: 2 },
       y: { min: 2, max: 30, step: 2 },
     });
+    pane.addInput(PARAMS, 'symmetries', {
+      label: 'Symmetries',
+      options: { none: 'none', oneway: 'oneway', twoway: 'twoway' },
+    });
     pane.addInput(PARAMS, 'grid_copies', {
+      label: 'Number of segments',
       x: { min: 1, max: 8, step: 1 },
       y: { min: 1, max: 8, step: 1 },
     });
-    pane.addInput(PARAMS, 'ornament_scale', { min: 2, max: 50, step: 2 });
-    pane.addInput(PARAMS, 'resolution', { min: 1, max: 10, step: 1 });
-    pane.addInput(PARAMS, 'spacing', { min: 0.1, max: 2, step: 0.05 });
-    pane.addInput(PARAMS, 'noise_intensity', { min: 0, max: 2, step: 0.1 });
-    pane.addInput(PARAMS, 'palette', { options: Object.assign({}, ...tome.getNames().map((n) => ({ [n]: n }))) });
-    pane.addInput(PARAMS, 'split_chance', { min: 0, max: 0.5, step: 0.05 });
-    pane.addInput(PARAMS, 'blank_chance', { min: 0, max: 0.9, step: 0.1 });
-    pane.addInput(PARAMS, 'path_priority', { min: 0.1, max: 1, step: 0.1 });
-    pane.addInput(PARAMS, 'symmetries', { options: { none: 'none', oneway: 'oneway', twoway: 'twoway' } });
-    pane.addInput(PARAMS, 'horizontal_reflection');
-    pane.addInput(PARAMS, 'vertical_reflection');
+
+    pane.addInput(PARAMS, 'horizontal_reflection', { label: 'Horizontal reflection' });
+    pane.addInput(PARAMS, 'vertical_reflection', { label: 'Vertical reflection' });
+
+    let stylePane = pane.addFolder({ title: 'Style' });
+    stylePane.addInput(PARAMS, 'ornament_scale', { label: 'Scale', min: 2, max: 50, step: 2 });
+    stylePane.addInput(PARAMS, 'resolution', { label: 'Resolution', min: 1, max: 10, step: 1 });
+    stylePane.addInput(PARAMS, 'spacing', { label: 'Spacing', min: 0.1, max: 2, step: 0.05 });
+    stylePane.addInput(PARAMS, 'noise_intensity', { label: 'Distortion', min: 0, max: 2, step: 0.1 });
+    stylePane.addInput(PARAMS, 'palette', {
+      label: 'Color palette',
+      options: Object.assign({}, ...tome.getNames().map((n) => ({ [n]: n }))),
+    });
+    pane.addInput(PARAMS, 'stroke_weight', { label: 'Stroke weight', min: 0, max: 5, step: 1 });
+
+    let explorerPane = pane.addFolder({ title: 'Explorer' });
+    explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.5, step: 0.05 });
+    explorerPane.addInput(PARAMS, 'blank_chance', { label: 'Blank chance', min: 0, max: 0.9, step: 0.1 });
+    explorerPane.addInput(PARAMS, 'path_priority', { label: 'Path priority', min: 0.1, max: 1, step: 0.1 });
+
+    let controlPane = pane.addFolder({ title: 'Control' });
+    controlPane.addInput(PARAMS, 'animate_drawing', { label: 'Animate drawing' });
 
     const btn = pane.addButton({ title: 'Redraw' });
     btn.on('click', () => reset_with_new_seed(PARAMS));
     pane.on('change', (_) => reset(PARAMS));
 
     reset_with_new_seed(PARAMS);
+  };
+
+  p.draw = function () {
+    p.push();
+    p.translate(pad_x, pad_y);
+
+    if (!PARAMS.animate_drawing) {
+      if (PARAMS.stroke_weight > 0) {
+        p.stroke(tome.get(PARAMS.palette).stroke || '#000');
+        p.strokeWeight(PARAMS.stroke_weight * 2);
+        ornament.forEach((polyset) =>
+          polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color))
+        );
+      }
+      p.noStroke();
+      ornament.forEach((polyset) =>
+        polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color))
+      );
+      p.noLoop();
+    } else if (tick < ornament.length) {
+      p.noStroke();
+      let polyset = ornament[tick];
+      polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color));
+      tick++;
+    } else {
+      p.noLoop();
+    }
+
+    p.pop();
   };
 
   function reset_with_new_seed(params) {
@@ -74,7 +132,9 @@ let sketch = function (p) {
 
   function reset(params) {
     rng = seedrandom(seed);
+
     const palette = tome.get(params.palette);
+    p.background(palette.background || '#ddd');
 
     const cell_dim = params.resolution;
     const spacing_dim = Math.ceil(params.resolution * params.spacing);
@@ -83,63 +143,70 @@ let sketch = function (p) {
     const local_grid_h = params.grid_dim.y;
     const grid_w = local_grid_w * params.grid_copies.x;
     const grid_h = local_grid_h * params.grid_copies.y;
-    const ornament_w = params.ornament_scale * grid_w;
-    const ornament_h = params.ornament_scale * grid_h;
 
-    const explore_opts = {
-      init_x: Math.floor(rng() * local_grid_w),
-      init_y: Math.floor(rng() * local_grid_h),
-      split_chance: params.split_chance,
-      blank_chance: params.blank_chance,
-      cand_size: params.path_priority,
-      symmetries: symmetry(params.symmetries),
-      href: params.horizontal_reflection,
-      vref: params.vertical_reflection,
-      rng: rng,
-    };
+    ornament_width = params.ornament_scale * grid_w;
+    ornament_height = params.ornament_scale * grid_h;
+
+    pad_x = (canvas_width - ornament_width) / 2;
+    pad_y = (canvas_height - ornament_height) / 2;
 
     p.noiseSeed(rng() * 9999);
 
-    const explore_fn = create_explorer(
+    let explore_fn = create_explorer(
       local_grid_w,
       local_grid_h,
       params.grid_copies.x,
       params.grid_copies.y,
       palette.colors.length,
-      explore_opts
+      {
+        init_x: Math.floor(rng() * local_grid_w),
+        init_y: Math.floor(rng() * local_grid_h),
+        split_chance: params.split_chance,
+        blank_chance: params.blank_chance,
+        cand_size: params.path_priority,
+        symmetries: symmetry(params.symmetries),
+        href: params.horizontal_reflection,
+        vref: params.vertical_reflection,
+        rng: rng,
+      }
     );
 
     create_grid(grid_w, grid_h, cell_dim, spacing_dim, params.noise_intensity);
-    draw_ornament(explore_fn, grid_w, grid_h, ornament_w, ornament_h, cell_dim, spacing_dim, palette);
+    ornament = create_ornament(explore_fn, grid_w, grid_h, cell_dim, spacing_dim, palette);
+
+    tick = 0;
+    p.loop();
   }
 
-  function draw_ornament(explore, grid_w, grid_h, size_x, size_y, cell_dim, spacing_dim, palette) {
-    const pad_x = (canvas_width - size_x) / 2;
-    const pad_y = (canvas_height - size_y) / 2;
-
-    p.push();
-    p.translate(pad_x, pad_y);
-    p.background(palette.background);
-
+  function create_ornament(explore, grid_w, grid_h, cell_dim, spacing_dim, palette) {
+    let polys = [];
     let next = explore();
     while (next) {
+      let polyset = [];
       next.forEach((n) => {
-        var block_w = n.parent_pos === 'W' || n.parent_pos === 'E' ? 1 : 0; //Math.abs(n.x - n.parent.x);
-        var block_h = n.parent_pos === 'N' || n.parent_pos === 'S' ? 1 : 0; //Math.abs(n.y - n.parent.y);
-        var block_x = n.parent_pos === 'W' ? n.x - 1 : n.x; //Math.min(n.x, n.parent.x);
-        var block_y = n.parent_pos === 'N' ? n.y - 1 : n.y; //Math.min(n.y, n.parent.y);
-
-        var long_dist = block_x + block_w > grid_w - 1 || block_y + block_h > grid_h - 1 || block_x < 0 || block_y < 0;
-        var pnts = long_dist
-          ? extract_square(n.x, n.y, 0, 0, cell_dim, spacing_dim)
-          : extract_square(block_x, block_y, block_w, block_h, cell_dim, spacing_dim);
-
-        draw_poly(pnts, size_x, size_y, n.color === -1 ? null : palette.colors[n.color]);
+        const pnts = create_poly(n, grid_w, grid_h, cell_dim, spacing_dim);
+        const col = n.color === -1 ? null : palette.colors[n.color];
+        polyset.push({ pnts: pnts, color: col });
       });
 
+      polys.push(polyset);
       next = explore();
     }
-    p.pop();
+
+    return polys;
+  }
+
+  function create_poly(n, grid_w, grid_h, cell_dim, spacing_dim) {
+    var block_w = n.parent_pos === 'W' || n.parent_pos === 'E' ? 1 : 0;
+    var block_h = n.parent_pos === 'N' || n.parent_pos === 'S' ? 1 : 0;
+    var block_x = n.parent_pos === 'W' ? n.x - 1 : n.x;
+    var block_y = n.parent_pos === 'N' ? n.y - 1 : n.y;
+
+    var long_dist = block_x + block_w > grid_w - 1 || block_y + block_h > grid_h - 1 || block_x < 0 || block_y < 0;
+
+    return long_dist
+      ? extract_square(n.x, n.y, 0, 0, cell_dim, spacing_dim)
+      : extract_square(block_x, block_y, block_w, block_h, cell_dim, spacing_dim);
   }
 
   function extract_square(x, y, w, h, size1, size2) {
@@ -159,7 +226,7 @@ let sketch = function (p) {
 
     p.beginShape();
     pnts.forEach((pnt) => p.vertex(pnt[0] * sizeX, pnt[1] * sizeY));
-    p.endShape(p.CLOSED);
+    p.endShape(p.CLOSE);
   }
 
   function create_grid(w, h, big_cell, small_cell, noise_intensity) {
