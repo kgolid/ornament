@@ -982,6 +982,182 @@
   	return module = { exports: {} }, fn(module, module.exports), module.exports;
   }
 
+  var seedRandom = createCommonjsModule(function (module) {
+
+  var width = 256;// each RC4 output is 0 <= x < 256
+  var chunks = 6;// at least six RC4 outputs for each double
+  var digits = 52;// there are 52 significant digits in a double
+  var pool = [];// pool: entropy pool starts empty
+  var GLOBAL = typeof commonjsGlobal === 'undefined' ? window : commonjsGlobal;
+
+  //
+  // The following constants are related to IEEE 754 limits.
+  //
+  var startdenom = Math.pow(width, chunks),
+      significance = Math.pow(2, digits),
+      overflow = significance * 2,
+      mask = width - 1;
+
+
+  var oldRandom = Math.random;
+
+  //
+  // seedrandom()
+  // This is the seedrandom function described above.
+  //
+  module.exports = function(seed, options) {
+    if (options && options.global === true) {
+      options.global = false;
+      Math.random = module.exports(seed, options);
+      options.global = true;
+      return Math.random;
+    }
+    var use_entropy = (options && options.entropy) || false;
+    var key = [];
+
+    // Flatten the seed string or build one from local entropy if needed.
+    var shortseed = mixkey(flatten(
+      use_entropy ? [seed, tostring(pool)] :
+      0 in arguments ? seed : autoseed(), 3), key);
+
+    // Use the seed to initialize an ARC4 generator.
+    var arc4 = new ARC4(key);
+
+    // Mix the randomness into accumulated entropy.
+    mixkey(tostring(arc4.S), pool);
+
+    // Override Math.random
+
+    // This function returns a random double in [0, 1) that contains
+    // randomness in every bit of the mantissa of the IEEE 754 value.
+
+    return function() {         // Closure to return a random double:
+      var n = arc4.g(chunks),             // Start with a numerator n < 2 ^ 48
+          d = startdenom,                 //   and denominator d = 2 ^ 48.
+          x = 0;                          //   and no 'extra last byte'.
+      while (n < significance) {          // Fill up all significant digits by
+        n = (n + x) * width;              //   shifting numerator and
+        d *= width;                       //   denominator and generating a
+        x = arc4.g(1);                    //   new least-significant-byte.
+      }
+      while (n >= overflow) {             // To avoid rounding up, before adding
+        n /= 2;                           //   last byte, shift everything
+        d /= 2;                           //   right using integer Math until
+        x >>>= 1;                         //   we have exactly the desired bits.
+      }
+      return (n + x) / d;                 // Form the number within [0, 1).
+    };
+  };
+
+  module.exports.resetGlobal = function () {
+    Math.random = oldRandom;
+  };
+
+  //
+  // ARC4
+  //
+  // An ARC4 implementation.  The constructor takes a key in the form of
+  // an array of at most (width) integers that should be 0 <= x < (width).
+  //
+  // The g(count) method returns a pseudorandom integer that concatenates
+  // the next (count) outputs from ARC4.  Its return value is a number x
+  // that is in the range 0 <= x < (width ^ count).
+  //
+  /** @constructor */
+  function ARC4(key) {
+    var t, keylen = key.length,
+        me = this, i = 0, j = me.i = me.j = 0, s = me.S = [];
+
+    // The empty key [] is treated as [0].
+    if (!keylen) { key = [keylen++]; }
+
+    // Set up S using the standard key scheduling algorithm.
+    while (i < width) {
+      s[i] = i++;
+    }
+    for (i = 0; i < width; i++) {
+      s[i] = s[j = mask & (j + key[i % keylen] + (t = s[i]))];
+      s[j] = t;
+    }
+
+    // The "g" method returns the next (count) outputs as one number.
+    (me.g = function(count) {
+      // Using instance members instead of closure state nearly doubles speed.
+      var t, r = 0,
+          i = me.i, j = me.j, s = me.S;
+      while (count--) {
+        t = s[i = mask & (i + 1)];
+        r = r * width + s[mask & ((s[i] = s[j = mask & (j + t)]) + (s[j] = t))];
+      }
+      me.i = i; me.j = j;
+      return r;
+      // For robust unpredictability discard an initial batch of values.
+      // See http://www.rsa.com/rsalabs/node.asp?id=2009
+    })(width);
+  }
+
+  //
+  // flatten()
+  // Converts an object tree to nested arrays of strings.
+  //
+  function flatten(obj, depth) {
+    var result = [], typ = (typeof obj)[0], prop;
+    if (depth && typ == 'o') {
+      for (prop in obj) {
+        try { result.push(flatten(obj[prop], depth - 1)); } catch (e) {}
+      }
+    }
+    return (result.length ? result : typ == 's' ? obj : obj + '\0');
+  }
+
+  //
+  // mixkey()
+  // Mixes a string seed into a key that is an array of integers, and
+  // returns a shortened string seed that is equivalent to the result key.
+  //
+  function mixkey(seed, key) {
+    var stringseed = seed + '', smear, j = 0;
+    while (j < stringseed.length) {
+      key[mask & j] =
+        mask & ((smear ^= key[mask & j] * 19) + stringseed.charCodeAt(j++));
+    }
+    return tostring(key);
+  }
+
+  //
+  // autoseed()
+  // Returns an object for autoseeding, using window.crypto if available.
+  //
+  /** @param {Uint8Array=} seed */
+  function autoseed(seed) {
+    try {
+      GLOBAL.crypto.getRandomValues(seed = new Uint8Array(width));
+      return tostring(seed);
+    } catch (e) {
+      return [+new Date, GLOBAL, GLOBAL.navigator && GLOBAL.navigator.plugins,
+              GLOBAL.screen, tostring(pool)];
+    }
+  }
+
+  //
+  // tostring()
+  // Converts an array of charcodes to a string
+  //
+  function tostring(a) {
+    return String.fromCharCode.apply(0, a);
+  }
+
+  //
+  // When seedrandom.js is loaded, we immediately mix a few bits
+  // from the built-in RNG into the entropy pool.  Because we do
+  // not want to intefere with determinstic PRNG state later,
+  // seedrandom will not call Math.random on its own again after
+  // initialization.
+  //
+  mixkey(Math.random(), pool);
+  });
+  var seedRandom_1 = seedRandom.resetGlobal;
+
   var tweakpane = createCommonjsModule(function (module, exports) {
   (function webpackUniversalModuleDefinition(root, factory) {
   	module.exports = factory();
@@ -9394,181 +9570,92 @@
 
   var Tweakpane = unwrapExports(tweakpane);
 
-  var seedRandom = createCommonjsModule(function (module) {
+  function create_ui (PARAMS, reset, reset_with_new_seed) {
+    const pane = new Tweakpane({ title: 'Ornament options' });
+    pane.addInput(PARAMS, 'grid_dim', {
+      label: 'Segment size',
+      x: { min: 2, max: 30, step: 2 },
+      y: { min: 2, max: 30, step: 2 },
+    });
+    pane.addInput(PARAMS, 'symmetries', {
+      label: 'Symmetries',
+      options: {
+        none: 'none',
+        rotate_180: 'rotate_180',
+        rotate_90: 'rotate_90',
+        rotate_reflect_h: 'rotate_reflect_h',
+        rotate_reflect_v: 'rotate_reflect_v',
+        translate_reflect_h: 'translate_reflect_h',
+        translate_reflect_v: 'translate_reflect_v',
+      },
+    });
+    pane.addInput(PARAMS, 'grid_copies', {
+      label: 'Number of segments',
+      x: { min: 1, max: 8, step: 1 },
+      y: { min: 1, max: 8, step: 1 },
+    });
 
-  var width = 256;// each RC4 output is 0 <= x < 256
-  var chunks = 6;// at least six RC4 outputs for each double
-  var digits = 52;// there are 52 significant digits in a double
-  var pool = [];// pool: entropy pool starts empty
-  var GLOBAL = typeof commonjsGlobal === 'undefined' ? window : commonjsGlobal;
+    pane.addInput(PARAMS, 'horizontal_reflection', { label: 'Horizontal reflection' });
+    pane.addInput(PARAMS, 'vertical_reflection', { label: 'Vertical reflection' });
 
-  //
-  // The following constants are related to IEEE 754 limits.
-  //
-  var startdenom = Math.pow(width, chunks),
-      significance = Math.pow(2, digits),
-      overflow = significance * 2,
-      mask = width - 1;
+    let stylePane = pane.addFolder({ title: 'Style' });
+    stylePane.addInput(PARAMS, 'ornament_scale', { label: 'Scale', min: 2, max: 50, step: 2 });
+    stylePane.addInput(PARAMS, 'resolution', { label: 'Resolution', min: 1, max: 10, step: 1 });
+    stylePane.addInput(PARAMS, 'spacing', { label: 'Spacing', min: 0.1, max: 2, step: 0.05 });
+    stylePane.addInput(PARAMS, 'noise_intensity', { label: 'Distortion', min: 0, max: 2, step: 0.1 });
+    stylePane.addInput(PARAMS, 'palette', {
+      label: 'Color palette',
+      options: Object.assign({}, ...getNames().map((n) => ({ [n]: n }))),
+    });
 
+    let explorerPane = pane.addFolder({ title: 'Explorer' });
+    explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.5, step: 0.05 });
+    explorerPane.addInput(PARAMS, 'blank_chance', { label: 'Blank chance', min: 0, max: 0.9, step: 0.1 });
+    explorerPane.addInput(PARAMS, 'path_priority', { label: 'Path priority', min: 0.1, max: 1, step: 0.1 });
 
-  var oldRandom = Math.random;
+    let controlPane = pane.addFolder({ title: 'Control' });
+    controlPane.addInput(PARAMS, 'animate_drawing', { label: 'Animate drawing' });
 
-  //
-  // seedrandom()
-  // This is the seedrandom function described above.
-  //
-  module.exports = function(seed, options) {
-    if (options && options.global === true) {
-      options.global = false;
-      Math.random = module.exports(seed, options);
-      options.global = true;
-      return Math.random;
-    }
-    var use_entropy = (options && options.entropy) || false;
-    var key = [];
-
-    // Flatten the seed string or build one from local entropy if needed.
-    var shortseed = mixkey(flatten(
-      use_entropy ? [seed, tostring(pool)] :
-      0 in arguments ? seed : autoseed(), 3), key);
-
-    // Use the seed to initialize an ARC4 generator.
-    var arc4 = new ARC4(key);
-
-    // Mix the randomness into accumulated entropy.
-    mixkey(tostring(arc4.S), pool);
-
-    // Override Math.random
-
-    // This function returns a random double in [0, 1) that contains
-    // randomness in every bit of the mantissa of the IEEE 754 value.
-
-    return function() {         // Closure to return a random double:
-      var n = arc4.g(chunks),             // Start with a numerator n < 2 ^ 48
-          d = startdenom,                 //   and denominator d = 2 ^ 48.
-          x = 0;                          //   and no 'extra last byte'.
-      while (n < significance) {          // Fill up all significant digits by
-        n = (n + x) * width;              //   shifting numerator and
-        d *= width;                       //   denominator and generating a
-        x = arc4.g(1);                    //   new least-significant-byte.
-      }
-      while (n >= overflow) {             // To avoid rounding up, before adding
-        n /= 2;                           //   last byte, shift everything
-        d /= 2;                           //   right using integer Math until
-        x >>>= 1;                         //   we have exactly the desired bits.
-      }
-      return (n + x) / d;                 // Form the number within [0, 1).
-    };
-  };
-
-  module.exports.resetGlobal = function () {
-    Math.random = oldRandom;
-  };
-
-  //
-  // ARC4
-  //
-  // An ARC4 implementation.  The constructor takes a key in the form of
-  // an array of at most (width) integers that should be 0 <= x < (width).
-  //
-  // The g(count) method returns a pseudorandom integer that concatenates
-  // the next (count) outputs from ARC4.  Its return value is a number x
-  // that is in the range 0 <= x < (width ^ count).
-  //
-  /** @constructor */
-  function ARC4(key) {
-    var t, keylen = key.length,
-        me = this, i = 0, j = me.i = me.j = 0, s = me.S = [];
-
-    // The empty key [] is treated as [0].
-    if (!keylen) { key = [keylen++]; }
-
-    // Set up S using the standard key scheduling algorithm.
-    while (i < width) {
-      s[i] = i++;
-    }
-    for (i = 0; i < width; i++) {
-      s[i] = s[j = mask & (j + key[i % keylen] + (t = s[i]))];
-      s[j] = t;
-    }
-
-    // The "g" method returns the next (count) outputs as one number.
-    (me.g = function(count) {
-      // Using instance members instead of closure state nearly doubles speed.
-      var t, r = 0,
-          i = me.i, j = me.j, s = me.S;
-      while (count--) {
-        t = s[i = mask & (i + 1)];
-        r = r * width + s[mask & ((s[i] = s[j = mask & (j + t)]) + (s[j] = t))];
-      }
-      me.i = i; me.j = j;
-      return r;
-      // For robust unpredictability discard an initial batch of values.
-      // See http://www.rsa.com/rsalabs/node.asp?id=2009
-    })(width);
+    const btn = pane.addButton({ title: 'Redraw' });
+    btn.on('click', () => reset_with_new_seed(PARAMS));
+    pane.on('change', (_) => reset(PARAMS));
   }
 
-  //
-  // flatten()
-  // Converts an object tree to nested arrays of strings.
-  //
-  function flatten(obj, depth) {
-    var result = [], typ = (typeof obj)[0], prop;
-    if (depth && typ == 'o') {
-      for (prop in obj) {
-        try { result.push(flatten(obj[prop], depth - 1)); } catch (e) {}
-      }
-    }
-    return (result.length ? result : typ == 's' ? obj : obj + '\0');
+  function get_symmetry(s) {
+    if (s === 'none') return [[0, false, false, 0, 0]];
+    if (s === 'rotate_180')
+      return [
+        [0, false, false, 0, 0],
+        [2, false, false, 0, 0],
+      ];
+    if (s === 'rotate_90')
+      return [
+        [0, false, false, 0, 0],
+        [1, false, false, 0, 0],
+        [2, false, false, 0, 0],
+        [3, false, false, 0, 0],
+      ];
+    if (s === 'rotate_reflect_v')
+      return [
+        [0, false, false, 0, 0],
+        [1, false, true, 0, 0],
+      ];
+    if (s === 'rotate_reflect_h')
+      return [
+        [0, false, false, 0, 0],
+        [1, true, false, 0, 0],
+      ];
+    if (s === 'translate_reflect_v')
+      return [
+        [0, false, false, 0, 0],
+        [0, false, true, 0.5, 0],
+      ];
+    if (s === 'translate_reflect_h')
+      return [
+        [0, false, false, 0, 0],
+        [0, true, false, 0, 0.5],
+      ];
   }
-
-  //
-  // mixkey()
-  // Mixes a string seed into a key that is an array of integers, and
-  // returns a shortened string seed that is equivalent to the result key.
-  //
-  function mixkey(seed, key) {
-    var stringseed = seed + '', smear, j = 0;
-    while (j < stringseed.length) {
-      key[mask & j] =
-        mask & ((smear ^= key[mask & j] * 19) + stringseed.charCodeAt(j++));
-    }
-    return tostring(key);
-  }
-
-  //
-  // autoseed()
-  // Returns an object for autoseeding, using window.crypto if available.
-  //
-  /** @param {Uint8Array=} seed */
-  function autoseed(seed) {
-    try {
-      GLOBAL.crypto.getRandomValues(seed = new Uint8Array(width));
-      return tostring(seed);
-    } catch (e) {
-      return [+new Date, GLOBAL, GLOBAL.navigator && GLOBAL.navigator.plugins,
-              GLOBAL.screen, tostring(pool)];
-    }
-  }
-
-  //
-  // tostring()
-  // Converts an array of charcodes to a string
-  //
-  function tostring(a) {
-    return String.fromCharCode.apply(0, a);
-  }
-
-  //
-  // When seedrandom.js is loaded, we immediately mix a few bits
-  // from the built-in RNG into the entropy pool.  Because we do
-  // not want to intefere with determinstic PRNG state later,
-  // seedrandom will not call Math.random on its own again after
-  // initialization.
-  //
-  mixkey(Math.random(), pool);
-  });
-  var seedRandom_1 = seedRandom.resetGlobal;
 
   function reflected({ x, y, parent_pos }, cell_w, cell_h, horizontal, vertical) {
     let lx = cell_w * (Math.floor(x / cell_w) + 1) - (x % cell_w) - 1;
@@ -9577,7 +9664,6 @@
     let nx = horizontal ? lx : x;
     let ny = vertical ? ly : y;
 
-    //console.log(x, y, nx, ny, grid);
     return { x: nx, y: ny, parent_pos: parent_reflected(parent_pos, horizontal, vertical) };
   }
 
@@ -9653,7 +9739,6 @@
       explored.push(pick);
 
       if (rng() < split_chance) {
-        pick.parent = pick;
         pick.parent_pos = '';
         pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
       }
@@ -9662,19 +9747,16 @@
 
       for (let i = 0; i < copies_y; i++) {
         for (let j = 0; j < copies_x; j++) {
-          symmetries.forEach((s) => {
-            if (i + j + s !== 0) {
+          symmetries.forEach((s, si) => {
+            if (i + j + si !== 0) {
               const transform = get_transform(j, i, s, local_w, local_h, grid_w, grid_h, href, vref);
               const tr = transform(pick);
-              //const trp = transform(pick.parent);
 
               const pick_clone = grid[tr.y][tr.x];
-              //const parent_clone = grid[trp.y][trp.x];
 
               pick_clone.explored = true;
               pick_clone.color = pick.color;
-              //pick_clone.parent = parent_clone;
-              pick_clone.parent_pos = tr.parent_pos;
+              pick_clone.parent_pos = picks.includes(pick_clone) ? '' : tr.parent_pos;
 
               picks.push(pick_clone);
             }
@@ -9718,7 +9800,6 @@
     }
 
     neighbors.forEach((n) => {
-      n.parent = cell;
       n.generation = cell.generation + 1;
       n.color = cell.color;
     });
@@ -9728,11 +9809,13 @@
 
   function get_transform(global_x, global_y, symm, cell_w, cell_h, grid_w, grid_h, href, vref) {
     return (pnt) => {
-      const p1 = rotated(pnt, cell_w, cell_h, symm);
-      const p2 = translated(p1, grid_w, grid_h, global_x * cell_w, global_y * cell_h);
+      const p1 = rotated(pnt, cell_w, cell_h, symm[0]);
+      const p1b = reflected(p1, cell_w, cell_h, symm[1], symm[2]);
+      const p1c = translated(p1b, grid_w, grid_h, symm[3] * cell_w, symm[4] * cell_h);
+
+      const p2 = translated(p1c, grid_w, grid_h, global_x * cell_w, global_y * cell_h);
       const p3 = global_x % 2 === 0 || !href ? p2 : reflected(p2, cell_w, cell_h, true, false);
       const p4 = global_y % 2 === 0 || !vref ? p3 : reflected(p3, cell_w, cell_h, false, true);
-      //console.log(pnt, p1, symm);
       return p4;
     };
   }
@@ -9773,9 +9856,8 @@
   let sketch = function (p) {
     p.setup = function () {
       p.createCanvas(canvas_width, canvas_height);
-      //p.frameRate(4);
-      p.noStroke();
       p.pixelDensity(2);
+      p.noStroke();
 
       seed = Math.random();
       PARAMS = {
@@ -9783,60 +9865,19 @@
         grid_copies: { x: 2, y: 2 },
         ornament_scale: 24,
         resolution: 6,
-        spacing: 0.7,
-        noise_intensity: 1.1,
+        spacing: 0.8,
+        noise_intensity: 1,
         palette: 'revolucion',
-        stroke_weight: 0,
         split_chance: 0.1,
         blank_chance: 0,
-        path_priority: 0.85,
-        symmetries: 'twoway',
-        horizontal_reflection: false,
-        vertical_reflection: false,
-        animate_drawing: false,
+        path_priority: 0.8,
+        symmetries: 'rotate_90',
+        horizontal_reflection: true,
+        vertical_reflection: true,
+        animate_drawing: true,
       };
 
-      const pane = new Tweakpane({ title: 'Ornament options' });
-      pane.addInput(PARAMS, 'grid_dim', {
-        label: 'Segment size',
-        x: { min: 2, max: 30, step: 2 },
-        y: { min: 2, max: 30, step: 2 },
-      });
-      pane.addInput(PARAMS, 'symmetries', {
-        label: 'Symmetries',
-        options: { none: 'none', oneway: 'oneway', twoway: 'twoway' },
-      });
-      pane.addInput(PARAMS, 'grid_copies', {
-        label: 'Number of segments',
-        x: { min: 1, max: 8, step: 1 },
-        y: { min: 1, max: 8, step: 1 },
-      });
-
-      pane.addInput(PARAMS, 'horizontal_reflection', { label: 'Horizontal reflection' });
-      pane.addInput(PARAMS, 'vertical_reflection', { label: 'Vertical reflection' });
-
-      let stylePane = pane.addFolder({ title: 'Style' });
-      stylePane.addInput(PARAMS, 'ornament_scale', { label: 'Scale', min: 2, max: 50, step: 2 });
-      stylePane.addInput(PARAMS, 'resolution', { label: 'Resolution', min: 1, max: 10, step: 1 });
-      stylePane.addInput(PARAMS, 'spacing', { label: 'Spacing', min: 0.1, max: 2, step: 0.05 });
-      stylePane.addInput(PARAMS, 'noise_intensity', { label: 'Distortion', min: 0, max: 2, step: 0.1 });
-      stylePane.addInput(PARAMS, 'palette', {
-        label: 'Color palette',
-        options: Object.assign({}, ...getNames().map((n) => ({ [n]: n }))),
-      });
-      pane.addInput(PARAMS, 'stroke_weight', { label: 'Stroke weight', min: 0, max: 5, step: 1 });
-
-      let explorerPane = pane.addFolder({ title: 'Explorer' });
-      explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.5, step: 0.05 });
-      explorerPane.addInput(PARAMS, 'blank_chance', { label: 'Blank chance', min: 0, max: 0.9, step: 0.1 });
-      explorerPane.addInput(PARAMS, 'path_priority', { label: 'Path priority', min: 0.1, max: 1, step: 0.1 });
-
-      let controlPane = pane.addFolder({ title: 'Control' });
-      controlPane.addInput(PARAMS, 'animate_drawing', { label: 'Animate drawing' });
-
-      const btn = pane.addButton({ title: 'Redraw' });
-      btn.on('click', () => reset_with_new_seed(PARAMS));
-      pane.on('change', (_) => reset(PARAMS));
+      create_ui(PARAMS, reset, reset_with_new_seed);
 
       reset_with_new_seed(PARAMS);
     };
@@ -9846,20 +9887,11 @@
       p.translate(pad_x, pad_y);
 
       if (!PARAMS.animate_drawing) {
-        if (PARAMS.stroke_weight > 0) {
-          p.stroke(get(PARAMS.palette).stroke || '#000');
-          p.strokeWeight(PARAMS.stroke_weight * 2);
-          ornament.forEach((polyset) =>
-            polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color))
-          );
-        }
-        p.noStroke();
         ornament.forEach((polyset) =>
           polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color))
         );
         p.noLoop();
       } else if (tick < ornament.length) {
-        p.noStroke();
         let polyset = ornament[tick];
         polyset.forEach((poly) => draw_poly(poly.pnts, ornament_width, ornament_height, poly.color));
         tick++;
@@ -9909,7 +9941,7 @@
           split_chance: params.split_chance,
           blank_chance: params.blank_chance,
           cand_size: params.path_priority,
-          symmetries: symmetry(params.symmetries),
+          symmetries: get_symmetry(params.symmetries),
           href: params.horizontal_reflection,
           vref: params.vertical_reflection,
           rng: rng,
@@ -9992,12 +10024,6 @@
       const ny = (y + (p.noise(x / 8, y / 2, 0.582) - 0.5) * intensity) / h;
 
       return [nx, ny];
-    }
-
-    function symmetry(s) {
-      if (s === 'none') return [0];
-      if (s === 'oneway') return [0, 2];
-      if (s === 'twoway') return [0, 1, 2, 3];
     }
 
     const transpose = (m) => m[0].map((_, i) => m.map((x) => x[i]));

@@ -5,7 +5,6 @@ export function reflected({ x, y, parent_pos }, cell_w, cell_h, horizontal, vert
   let nx = horizontal ? lx : x;
   let ny = vertical ? ly : y;
 
-  //console.log(x, y, nx, ny, grid);
   return { x: nx, y: ny, parent_pos: parent_reflected(parent_pos, horizontal, vertical) };
 }
 

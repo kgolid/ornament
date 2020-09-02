@@ -31,7 +31,6 @@ export function create_explorer(
     explored.push(pick);
 
     if (rng() < split_chance) {
-      pick.parent = pick;
       pick.parent_pos = '';
       pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
     }
@@ -40,19 +39,16 @@ export function create_explorer(
 
     for (let i = 0; i < copies_y; i++) {
       for (let j = 0; j < copies_x; j++) {
-        symmetries.forEach((s) => {
-          if (i + j + s !== 0) {
+        symmetries.forEach((s, si) => {
+          if (i + j + si !== 0) {
             const transform = get_transform(j, i, s, local_w, local_h, grid_w, grid_h, href, vref);
             const tr = transform(pick);
-            //const trp = transform(pick.parent);
 
             const pick_clone = grid[tr.y][tr.x];
-            //const parent_clone = grid[trp.y][trp.x];
 
             pick_clone.explored = true;
             pick_clone.color = pick.color;
-            //pick_clone.parent = parent_clone;
-            pick_clone.parent_pos = tr.parent_pos;
+            pick_clone.parent_pos = picks.includes(pick_clone) ? '' : tr.parent_pos;
 
             picks.push(pick_clone);
           }
@@ -96,7 +92,6 @@ function get_neighbors_of_cell(cell, grid) {
   }
 
   neighbors.forEach((n) => {
-    n.parent = cell;
     n.generation = cell.generation + 1;
     n.color = cell.color;
   });
@@ -106,11 +101,13 @@ function get_neighbors_of_cell(cell, grid) {
 
 function get_transform(global_x, global_y, symm, cell_w, cell_h, grid_w, grid_h, href, vref) {
   return (pnt) => {
-    const p1 = rotated(pnt, cell_w, cell_h, symm);
-    const p2 = translated(p1, grid_w, grid_h, global_x * cell_w, global_y * cell_h);
+    const p1 = rotated(pnt, cell_w, cell_h, symm[0]);
+    const p1b = reflected(p1, cell_w, cell_h, symm[1], symm[2]);
+    const p1c = translated(p1b, grid_w, grid_h, symm[3] * cell_w, symm[4] * cell_h);
+
+    const p2 = translated(p1c, grid_w, grid_h, global_x * cell_w, global_y * cell_h);
     const p3 = global_x % 2 === 0 || !href ? p2 : reflected(p2, cell_w, cell_h, true, false);
     const p4 = global_y % 2 === 0 || !vref ? p3 : reflected(p3, cell_w, cell_h, false, true);
-    //console.log(pnt, p1, symm);
     return p4;
   };
 }
