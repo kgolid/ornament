@@ -3,13 +3,13 @@ import * as tome from 'chromotome';
 
 export default function (PARAMS, reset, reset_with_new_seed) {
   const pane = new Tweakpane({ title: 'Ornament options' });
-  pane.addInput(PARAMS, 'grid_dim', {
-    label: 'Segment size',
-    x: { min: 2, max: 30, step: 2 },
-    y: { min: 2, max: 30, step: 2 },
+  pane.addInput(PARAMS, 'tile_dim', {
+    label: 'Tile size',
+    x: { min: 2, max: 20, step: 2 },
+    y: { min: 2, max: 20, step: 2 },
   });
   pane.addInput(PARAMS, 'symmetries', {
-    label: 'Symmetries',
+    label: 'Tile symmetry',
     options: {
       none: 'none',
       rotate_180: 'rotate_180',
@@ -20,24 +20,32 @@ export default function (PARAMS, reset, reset_with_new_seed) {
       translate_reflect_v: 'translate_reflect_v',
     },
   });
-  pane.addInput(PARAMS, 'grid_copies', {
-    label: 'Number of segments',
-    x: { min: 1, max: 8, step: 1 },
-    y: { min: 1, max: 8, step: 1 },
+  pane.addInput(PARAMS, 'tile_copies', {
+    label: 'Tiles in a segment',
+    x: { min: 1, max: 10, step: 1 },
+    y: { min: 1, max: 10, step: 1 },
   });
 
   pane.addInput(PARAMS, 'horizontal_reflection', { label: 'Horizontal reflection' });
   pane.addInput(PARAMS, 'vertical_reflection', { label: 'Vertical reflection' });
+
+  pane.addInput(PARAMS, 'segment_copies', { label: 'Segment copies', min: 1, max: 8, step: 1 });
 
   let stylePane = pane.addFolder({ title: 'Style' });
   stylePane.addInput(PARAMS, 'ornament_scale', { label: 'Scale', min: 2, max: 50, step: 2 });
   stylePane.addInput(PARAMS, 'resolution', { label: 'Resolution', min: 1, max: 10, step: 1 });
   stylePane.addInput(PARAMS, 'spacing', { label: 'Spacing', min: 0.1, max: 2, step: 0.05 });
   stylePane.addInput(PARAMS, 'noise_intensity', { label: 'Distortion', min: 0, max: 2, step: 0.1 });
+  stylePane.addSeparator();
   stylePane.addInput(PARAMS, 'palette', {
     label: 'Color palette',
     options: Object.assign({}, ...tome.getNames().map((n) => ({ [n]: n }))),
   });
+  stylePane.addInput(PARAMS, 'interpolate_colors', { label: 'Interpolate palette' });
+  stylePane.addSeparator();
+  stylePane.addInput(PARAMS, 'segment_padding', { label: 'Segment padding', min: 0, max: 2, step: 1 });
+  stylePane.addInput(PARAMS, 'display_borders', { label: 'Display borders' });
+  stylePane.addInput(PARAMS, 'display_base', { label: 'Display base' });
 
   let explorerPane = pane.addFolder({ title: 'Explorer' });
   explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.5, step: 0.05 });

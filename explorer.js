@@ -6,11 +6,25 @@ export function create_explorer(
   copies_x,
   copies_y,
   number_of_cols,
-  { init_x = 0, init_y = 0, split_chance = 0, blank_chance = 0, cand_size = 0.1, symmetries = [], href, vref, rng } = {}
+  {
+    init_x = 0,
+    init_y = 0,
+    split_chance = 0,
+    blank_chance = 0,
+    cand_size = 0.1,
+    symmetries = [],
+    frame = -1,
+    href,
+    vref,
+    rng,
+  } = {}
 ) {
   const grid_w = local_w * copies_x;
   const grid_h = local_h * copies_y;
-  const grid = [...Array(grid_h)].map((_, y) => [...Array(grid_w)].map((_, x) => ({ x, y, explored: false })));
+  const frame_fn = get_frame_function(grid_w, grid_h, frame);
+  const grid = [...Array(grid_h)].map((_, y) =>
+    [...Array(grid_w)].map((_, x) => ({ x, y, explored: frame_fn(x, y), barren: false }))
+  );
   const explored = [];
   let neighbors = [];
 
@@ -32,7 +46,11 @@ export function create_explorer(
 
     if (rng() < split_chance) {
       pick.parent_pos = '';
-      pick.color = rng() < blank_chance ? -1 : Math.floor(rng() * number_of_cols);
+      pick.color = Math.floor(rng() * number_of_cols);
+    }
+
+    if (rng() < blank_chance) {
+      pick.barren = true;
     }
 
     const picks = [pick];
@@ -63,7 +81,7 @@ export function create_explorer(
 }
 
 function get_all_neighbors(cells, grid) {
-  return [...new Set(cells.flatMap((cell) => get_neighbors_of_cell(cell, grid)))];
+  return [...new Set(cells.filter((c) => !c.barren).flatMap((cell) => get_neighbors_of_cell(cell, grid)))];
 }
 
 function get_neighbors_of_cell(cell, grid) {
@@ -109,6 +127,15 @@ function get_transform(global_x, global_y, symm, cell_w, cell_h, grid_w, grid_h,
     const p3 = global_x % 2 === 0 || !href ? p2 : reflected(p2, cell_w, cell_h, true, false);
     const p4 = global_y % 2 === 0 || !vref ? p3 : reflected(p3, cell_w, cell_h, false, true);
     return p4;
+  };
+}
+
+function get_frame_function(width, height, f_size) {
+  if (f_size == -1) return (x, y) => false;
+  return (x, y) => {
+    if (x < f_size || x > width - f_size) return false;
+    if (y < f_size || y > height - f_size) return false;
+    return true;
   };
 }
 
