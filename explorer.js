@@ -1,3 +1,4 @@
+import { random_int, mod, shuffle } from './util';
 import { translated, reflected, rotated } from './transform';
 
 export function create_explorer(
@@ -29,10 +30,10 @@ export function create_explorer(
   let neighbors = [];
 
   let init_cell = grid[init_y][init_x];
-  init_cell.parent = init_cell;
   init_cell.parent_pos = '';
   init_cell.generation = 0;
-  init_cell.color = Math.floor(rng() * number_of_cols);
+  init_cell.color = random_int(rng, number_of_cols);
+  init_cell.weight = 1;
   neighbors.push(init_cell);
 
   return () => {
@@ -46,7 +47,7 @@ export function create_explorer(
 
     if (rng() < split_chance) {
       pick.parent_pos = '';
-      pick.color = Math.floor(rng() * number_of_cols);
+      pick.color = random_int(rng, number_of_cols);
     }
 
     if (rng() < blank_chance) {
@@ -131,22 +132,10 @@ function get_transform(global_x, global_y, symm, cell_w, cell_h, grid_w, grid_h,
 }
 
 function get_frame_function(width, height, f_size) {
-  if (f_size == -1) return (x, y) => false;
+  if (f_size == -1) return (_x, _y) => false;
   return (x, y) => {
     if (x < f_size || x > width - f_size) return false;
     if (y < f_size || y > height - f_size) return false;
     return true;
   };
-}
-
-function shuffle(a, rng) {
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-function mod(n, m) {
-  return ((n % m) + m) % m;
 }
