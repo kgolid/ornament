@@ -5,8 +5,8 @@ export default function (PARAMS, reset, reset_with_new_seed) {
   const pane = new Tweakpane({ title: 'Ornament options' });
   pane.addInput(PARAMS, 'tile_dim', {
     label: 'Tile size',
-    x: { min: 2, max: 20, step: 2 },
-    y: { min: 2, max: 20, step: 2 },
+    x: { min: 2, max: 80, step: 2 },
+    y: { min: 2, max: 80, step: 2 },
   });
   pane.addInput(PARAMS, 'symmetries', {
     label: 'Tile symmetry',
@@ -43,7 +43,8 @@ export default function (PARAMS, reset, reset_with_new_seed) {
   });
   stylePane.addInput(PARAMS, 'interpolate_colors', { label: 'Interpolate palette' });
   stylePane.addSeparator();
-  stylePane.addInput(PARAMS, 'segment_padding', { label: 'Segment padding', min: 0, max: 2, step: 1 });
+  stylePane.addInput(PARAMS, 'segment_padding', { label: 'Segment padding', min: 0, max: 3, step: 1 });
+  stylePane.addInput(PARAMS, 'border_padding', { label: 'Border padding', min: 0, max: 6, step: 1 });
   stylePane.addInput(PARAMS, 'display_borders', { label: 'Display borders' });
   stylePane.addInput(PARAMS, 'display_base', { label: 'Display base' });
 

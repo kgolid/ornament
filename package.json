@@ -14,9 +14,9 @@
   "browser": "dist/index.js",
   "dependencies": {
     "chroma-js": "^2.1.0",
-    "chromotome": "^1.17.6",
+    "chromotome": "^1.19.0",
     "seed-random": "^2.2.0",
-    "tweakpane": "^1.5.3"
+    "tweakpane": "^1.5.6"
   },
   "devDependencies": {
     "rollup": "1.1.2",

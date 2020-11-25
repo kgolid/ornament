@@ -6,7 +6,7 @@ import create_ui from './ui';
 import { get_symmetry } from './symmetries';
 import { create_explorer } from './explorer';
 
-const canvas_width = 1600;
+const canvas_width = 1200;
 const canvas_height = 1200;
 
 let horizontal_lines;
@@ -49,6 +49,7 @@ let sketch = function (p) {
       palette: 'revolucion',
       interpolate_colors: true,
       segment_padding: 2,
+      border_padding: 2,
       display_borders: true,
       display_base: false,
       split_chance: 0.1,
@@ -110,9 +111,10 @@ let sketch = function (p) {
     const segment_h = params.tile_dim.y * params.tile_copies.y;
 
     const segment_pad = params.segment_padding;
+    const border_pad = params.border_padding;
 
-    const grid_w = segment_w + 2 * segment_pad;
-    const grid_h = (segment_h + segment_pad) * params.segment_copies + segment_pad;
+    const grid_w = segment_w + 2 * border_pad;
+    const grid_h = (segment_h + segment_pad) * params.segment_copies - segment_pad + 2 * border_pad;
 
     cell_dim = params.resolution;
     spacing_dim = Math.ceil(params.resolution * params.spacing);
@@ -130,40 +132,52 @@ let sketch = function (p) {
       segment_w,
       segment_h,
       segment_h + segment_pad,
-      segment_pad + 1,
-      segment_pad + 1,
+      border_pad + 1,
+      border_pad + 1,
       colors
     );
     dividers = create_dividers(
-      params.segment_copies,
+      params.segment_copies - 1,
       segment_h + segment_pad,
-      segment_w + segment_pad,
-      grid_h - 1,
+      segment_w + 2 * border_pad - 1,
       1,
-      1,
+      segment_h + border_pad + 1,
       segment_pad - 1,
       divider_col
     );
+
+    let border = create_border(segment_w + border_pad, grid_h - 1, 1, 1, border_pad - 1, divider_col);
+    dividers = dividers.concat(border);
 
     tick = 0;
     p.loop();
   }
 
-  function create_dividers(n, div_spacing, div_width, column_height, x_off, y_off, weight, col) {
+  function create_border(width, height, x_off, y_off, weight, col) {
     if (weight === -1) return [];
 
     const dividers = [];
 
-    const divider = create_divider(div_width, x_off, y_off, weight);
-    dividers.push({ pnts: divider, color: col });
+    const divider1 = create_divider(width, x_off, y_off, weight);
+    const divider2 = create_divider(width, x_off, y_off + height - weight, weight);
+    dividers.push({ pnts: divider1, color: col });
+    dividers.push({ pnts: divider2, color: col });
 
-    const column1 = create_column(column_height, x_off, y_off, weight);
-    const column2 = create_column(column_height, x_off + div_width, y_off, weight);
+    const column1 = create_column(height, x_off, y_off, weight);
+    const column2 = create_column(height, x_off + width, y_off, weight);
     dividers.push({ pnts: column1, color: col });
     dividers.push({ pnts: column2, color: col });
 
+    return dividers;
+  }
+
+  function create_dividers(n, div_spacing, div_width, x_off, y_off, weight, col) {
+    if (weight === -1 || n <= 0) return [];
+
+    const dividers = [];
+
     for (let i = 0; i < n; i++) {
-      const y_pos = (i + 1) * div_spacing + y_off;
+      const y_pos = i * div_spacing + y_off;
       const div = create_divider(div_width, x_off, y_pos, weight);
       dividers.push({ pnts: div, color: col });
     }
@@ -312,7 +326,7 @@ let sketch = function (p) {
   const transpose = (m) => m[0].map((_, i) => m.map((x) => x[i]));
 
   p.keyPressed = function () {
-    if (p.keyCode === 80) p.saveCanvas('ornament', 'jpeg');
+    if (p.keyCode === 80) p.saveCanvas('ornament', 'png');
   };
 };
 new p5(sketch);
