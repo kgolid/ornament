@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "browser": "dist/index.js",
+  "browser_collage": "dist/index-collage.js",
   "dependencies": {
     "chroma-js": "^2.1.0",
     "chromotome": "^1.19.0",

@@ -7,8 +7,16 @@ export default [
     input: 'index.js',
     output: {
       file: pkg.browser,
-      format: 'umd'
+      format: 'umd',
     },
-    plugins: [resolve(), commonjs()]
-  }
+    plugins: [resolve(), commonjs()],
+  },
+  {
+    input: 'index-collage.js',
+    output: {
+      file: pkg.browser_collage,
+      format: 'umd',
+    },
+    plugins: [resolve(), commonjs()],
+  },
 ];
