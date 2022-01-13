@@ -49,8 +49,8 @@ export default function (PARAMS, reset, reset_with_new_seed) {
   stylePane.addInput(PARAMS, 'display_base', { label: 'Display base' });
 
   let explorerPane = pane.addFolder({ title: 'Explorer' });
-  explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.5, step: 0.05 });
-  explorerPane.addInput(PARAMS, 'blank_chance', { label: 'Blank chance', min: 0, max: 0.9, step: 0.1 });
+  explorerPane.addInput(PARAMS, 'split_chance', { label: 'Split chance', min: 0, max: 0.2, step: 0.01 });
+  explorerPane.addInput(PARAMS, 'blank_chance', { label: 'Blank chance', min: 0, max: 0.6, step: 0.05 });
   explorerPane.addInput(PARAMS, 'path_priority', { label: 'Path priority', min: 0.1, max: 1, step: 0.1 });
 
   let controlPane = pane.addFolder({ title: 'Control' });
